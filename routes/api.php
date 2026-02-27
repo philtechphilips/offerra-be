@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\JobApplicationController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\VerifyEmailController;
+use App\Http\Controllers\CVController;
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
@@ -30,6 +31,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/jobs/{id}', [JobApplicationController::class, 'update']);
     Route::delete('/jobs/{id}', [JobApplicationController::class, 'destroy']);
     Route::post('/jobs/detect', [JobApplicationController::class, 'detect']);
+
+    // CV & Autofill
+    Route::post('/cv/upload', [CVController::class, 'upload']);
+    Route::get('/cv', [CVController::class, 'show']);
+    Route::post('/cv/autofill', [CVController::class, 'autofill']);
+    Route::post('/cv/match-score', [CVController::class, 'matchScore']);
+    Route::delete('/cv', [CVController::class, 'destroy']);
 });
 
 // Admin Only Routes Example

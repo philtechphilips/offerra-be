@@ -52,7 +52,38 @@ class JobApplicationController extends Controller
 
     public function index(Request $request)
     {
-        return response()->json($request->user()->jobApplications()->latest()->get());
+        $query = $request->user()->jobApplications()->latest();
+
+        // Search by title or company
+        if ($search = $request->query('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                  ->orWhere('company', 'like', "%{$search}%");
+            });
+        }
+
+        // Filter by status
+        if ($status = $request->query('status')) {
+            if ($status !== 'all') {
+                $query->where('status', $status);
+            }
+        }
+
+        $perPage = (int) $request->query('per_page', 15);
+        $page = (int) $request->query('page', 1);
+
+        $paginated = $query->paginate($perPage, ['*'], 'page', $page);
+
+        return response()->json([
+            'data' => $paginated->items(),
+            'meta' => [
+                'current_page' => $paginated->currentPage(),
+                'last_page' => $paginated->lastPage(),
+                'per_page' => $paginated->perPage(),
+                'total' => $paginated->total(),
+                'has_more' => $paginated->hasMorePages(),
+            ],
+        ]);
     }
 
     public function store(Request $request)
@@ -64,9 +95,11 @@ class JobApplicationController extends Controller
             'type' => 'string|nullable',
             'is_remote' => 'boolean|nullable',
             'salary' => 'string|nullable',
-            'url' => 'required|url',
+            'url' => 'nullable|url',
             'company_url' => 'string|nullable',
             'status' => 'string|nullable|in:applied,tracking,interview,rejected,offer',
+            'cv_match_score' => 'integer|nullable|min:0|max:100',
+            'cv_match_details' => 'array|nullable',
         ]);
 
         // Create the initial record
@@ -80,7 +113,9 @@ class JobApplicationController extends Controller
             'salary' => $validated['salary'] ?? null,
             'job_url' => $validated['url'],
             'company_url' => $validated['company_url'] ?? null,
-            'status' => $validated['status'] ?? 'tracking'
+            'status' => $validated['status'] ?? 'tracking',
+            'cv_match_score' => $validated['cv_match_score'] ?? null,
+            'cv_match_details' => $validated['cv_match_details'] ?? null,
         ]);
 
         // Trigger AI enrichment in background or sync for now to test
