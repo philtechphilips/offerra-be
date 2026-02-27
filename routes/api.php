@@ -37,7 +37,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/cv', [CVController::class, 'show']);
     Route::post('/cv/autofill', [CVController::class, 'autofill']);
     Route::post('/cv/match-score', [CVController::class, 'matchScore']);
-    Route::delete('/cv', [CVController::class, 'destroy']);
+    Route::post('/cv/generate-bios', [CVController::class, 'generateBios']);
+    Route::delete('/cv/{id}', [CVController::class, 'destroy']);
+    Route::put('/cv/{id}/activate', [CVController::class, 'activate']);
 });
 
 // Admin Only Routes Example

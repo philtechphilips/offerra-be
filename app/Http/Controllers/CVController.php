@@ -47,14 +47,17 @@ class CVController extends Controller
         // Store the file
         $path = $file->store('cvs/' . $request->user()->id, 'local');
 
-        // Save raw text immediately
-        $profile = UserProfile::updateOrCreate(
-            ['user_id' => $request->user()->id],
-            [
-                'cv_filename' => $filename,
-                'cv_raw_text' => $rawText,
-            ]
-        );
+        // Set all existing CVs to inactive
+        UserProfile::where('user_id', $request->user()->id)->update(['is_active' => false]);
+
+        // Save raw text as a new CV
+        $profile = UserProfile::create([
+            'user_id' => $request->user()->id,
+            'cv_filename' => $filename,
+            'profile_name' => pathinfo($filename, PATHINFO_FILENAME),
+            'cv_raw_text' => $rawText,
+            'is_active' => true,
+        ]);
 
         // Parse with AI
         $parsedData = $this->parseWithAI($rawText);
@@ -79,17 +82,26 @@ class CVController extends Controller
      */
     public function show(Request $request)
     {
-        $profile = UserProfile::where('user_id', $request->user()->id)->first();
+        $profiles = UserProfile::where('user_id', $request->user()->id)
+            ->orderBy('created_at', 'desc')
+            ->get();
 
-        if (!$profile) {
-            return response()->json(['has_cv' => false]);
+        if ($profiles->isEmpty()) {
+            return response()->json(['cvs' => []]);
         }
 
         return response()->json([
-            'has_cv' => true,
-            'filename' => $profile->cv_filename,
-            'parsed_data' => $profile->parsed_data,
-            'parsed_at' => $profile->parsed_at,
+            'cvs' => $profiles->map(function ($profile) {
+                return [
+                    'id' => $profile->id,
+                    'filename' => $profile->cv_filename,
+                    'profile_name' => $profile->profile_name,
+                    'parsed_data' => $profile->parsed_data,
+                    'is_active' => $profile->is_active,
+                    'parsed_at' => $profile->parsed_at,
+                    'created_at' => $profile->created_at,
+                ];
+            })
         ]);
     }
 
@@ -108,10 +120,12 @@ class CVController extends Controller
             'job_context' => 'nullable|string',
         ]);
 
-        $profile = UserProfile::where('user_id', $request->user()->id)->first();
+        $profile = UserProfile::where('user_id', $request->user()->id)
+            ->where('is_active', true)
+            ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
 
         if (!$profile || !$profile->parsed_data) {
-            return response()->json(['error' => 'No CV data found. Please upload your CV first.'], 422);
+            return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
         }
 
         $apiKey = env('DEEPSEEK_API_KEY');
@@ -181,10 +195,12 @@ CRITICAL RULES:
             'job_context' => 'required|string',
         ]);
 
-        $profile = UserProfile::where('user_id', $request->user()->id)->first();
+        $profile = UserProfile::where('user_id', $request->user()->id)
+            ->where('is_active', true)
+            ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
 
         if (!$profile || !$profile->parsed_data) {
-            return response()->json(['error' => 'No CV data found.'], 422);
+            return response()->json(['error' => 'No active CV data found.'], 422);
         }
 
         $apiKey = env('DEEPSEEK_API_KEY');
@@ -228,21 +244,94 @@ CRITICAL RULES:
         }
     }
 
+    /**
+     * Generate Social bios & titles using the active CV.
+     */
+    public function generateBios(Request $request)
+    {
+        $profile = UserProfile::where('user_id', $request->user()->id)
+            ->where('is_active', true)
+            ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+
+        if (!$profile || !$profile->parsed_data) {
+            return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
+        }
+
+        $apiKey = env('DEEPSEEK_API_KEY');
+        if (!$apiKey) {
+            return response()->json(['error' => 'AI key not configured.'], 500);
+        }
+
+        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => "Bearer $apiKey",
+                'Content-Type' => 'application/json',
+            ])->timeout(30)->post('https://api.deepseek.com/chat/completions', [
+                'model' => 'deepseek-chat',
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => 'You are an expert career coach, SEO specialist, and personal branding expert. Generate highly optimized profiles/bios based on the user\'s CV.'
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => "Candidate CV data:\n{$cvData}\n\nBased on this CV, generate SEO-friendly and highly engaging profile bios for the following platforms: LinkedIn (Headline + About section), X (Twitter) (Short punchy bio), Upwork (Headline + Description), and GitHub (Short bio). Respond strictly in JSON format matching this structure:\n{\n  \"linkedin\": {\n    \"headline\": \"...\",\n    \"about\": \"...\"\n  },\n  \"twitter\": \"...\",\n  \"upwork\": {\n    \"headline\": \"...\",\n    \"description\": \"...\"\n  },\n  \"github\": \"...\"\n}"
+                    ]
+                ],
+                'response_format' => ['type' => 'json_object'],
+            ]);
+
+            if ($response->successful()) {
+                $result = json_decode($response->json('choices.0.message.content'), true);
+                return response()->json($result);
+            }
+
+            return response()->json(['error' => 'Bio generation failed.'], 500);
+
+        } catch (\Exception $e) {
+            Log::error('Bio generation exception: ' . $e->getMessage());
+            return response()->json(['error' => 'AI service unavailable.'], 500);
+        }
+    }
+
 
     /**
-     * Delete the user's CV profile.
+     * Delete a specific CV profile.
      */
-    public function destroy(Request $request)
+    public function destroy(Request $request, $id)
     {
-        $profile = UserProfile::where('user_id', $request->user()->id)->first();
+        $profile = UserProfile::where('user_id', $request->user()->id)
+            ->where('id', $id)
+            ->firstOrFail();
 
-        if ($profile) {
-            // Delete stored file
-            Storage::disk('local')->deleteDirectory('cvs/' . $request->user()->id);
-            $profile->delete();
+        $profile->delete();
+
+        // If the deleted one was active, activate the most recent remaining one
+        if ($profile->is_active) {
+            $latest = UserProfile::where('user_id', $request->user()->id)->latest()->first();
+            if ($latest) {
+                $latest->update(['is_active' => true]);
+            }
         }
 
         return response()->json(['message' => 'CV deleted.']);
+    }
+
+    /**
+     * Set a CV as active.
+     */
+    public function activate(Request $request, $id)
+    {
+        $profile = UserProfile::where('user_id', $request->user()->id)
+            ->where('id', $id)
+            ->firstOrFail();
+
+        UserProfile::where('user_id', $request->user()->id)->update(['is_active' => false]);
+        $profile->update(['is_active' => true]);
+
+        return response()->json(['message' => 'CV activated.']);
     }
 
     // ========================================

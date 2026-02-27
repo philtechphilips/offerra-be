@@ -13,11 +13,14 @@ class UserProfile extends Model
         'cv_raw_text',
         'parsed_data',
         'parsed_at',
+        'is_active',
+        'profile_name',
     ];
 
     protected $casts = [
         'parsed_data' => 'array',
         'parsed_at' => 'datetime',
+        'is_active' => 'boolean',
     ];
 
     public function user(): BelongsTo
