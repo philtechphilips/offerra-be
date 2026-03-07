@@ -47,6 +47,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/cv/generate-bios', [CVController::class, 'generateBios']);
     Route::post('/cv/refactor', [CVController::class, 'refactorResume']);
     Route::post('/cv/proposal', [CVController::class, 'generateProposal']);
+    Route::post('/cv/interview-prep', [CVController::class, 'generateInterviewPrep']);
     Route::post('/cv/save-optimized', [CVController::class, 'storeRefactored']);
     Route::delete('/cv/{id}', [CVController::class, 'destroy']);
     Route::put('/cv/{id}/activate', [CVController::class, 'activate']);

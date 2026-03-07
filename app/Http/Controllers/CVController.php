@@ -489,6 +489,85 @@ CRITICAL SUCCESS FACTORS:
 
 
     /**
+     * Interview Prep: Generates interview questions and suggested answers.
+     */
+    public function generateInterviewPrep(Request $request)
+    {
+        $request->validate([
+            'job_description' => 'required|string',
+            'cv_id' => 'nullable|integer',
+        ]);
+
+        $profile = null;
+        if ($request->cv_id) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('id', $request->cv_id)
+                ->first();
+        }
+
+        if (!$profile) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('is_active', true)
+                ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+        }
+
+        if (!$profile || !$profile->parsed_data) {
+            return response()->json(['error' => 'No active CV data found.'], 422);
+        }
+
+        $apiKey = env('DEEPSEEK_API_KEY');
+        if (!$apiKey) {
+            return response()->json(['error' => 'AI key not configured.'], 500);
+        }
+
+        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+        $jobDescription = $request->job_description;
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => "Bearer $apiKey",
+                'Content-Type' => 'application/json',
+            ])->timeout(90)->post('https://api.deepseek.com/chat/completions', [
+                'model' => 'deepseek-chat',
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => "You are an elite interview coach. Your goal is to prepare a candidate for a high-stakes interview by generating the most likely questions and providing high-impact, STAR-method answers tailored to their real background.
+
+STRUCTURE OF RESPONSE:
+1. BEHAVIORAL QUESTIONS: Focus on 'Tell me about a time...' type questions.
+2. TECHNICAL/ROLE-SPECIFIC: Deep dive into the skills mentioned in the JD.
+3. CULTURE FIT: Questions about values and collaboration.
+4. THE 'WHY US': Craft a compelling reason why the candidate wants this specific company.
+
+For each question, provide:
+- 'question': The interview question.
+- 'category': e.g., 'Behavioral', 'Technical', 'Leadership'.
+- 'suggested_answer': A detailed answer using the STAR method (Situation, Task, Action, Result) based on the provided CV.
+- 'why_this_works': A short coach's note on what this answer demonstrates."
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => "Candidate CV Data:\n{$cvData}\n\nJob description:\n{$jobDescription}\n\nGenerate 8 high-impact interview questions with suggested answers. Return strictly in JSON format:\n{\n  \"prep_guide\": [\n    {\n      \"category\": \"...\",\n      \"question\": \"...\",\n      \"suggested_answer\": \"...\",\n      \"why_this_works\": \"...\"\n    }\n  ],\n  \"general_tips\": [\"Tip 1\", \"Tip 2\"]\n}"
+                    ]
+                ],
+                'response_format' => ['type' => 'json_object'],
+            ]);
+
+            if ($response->successful()) {
+                $result = json_decode($response->json('choices.0.message.content'), true);
+                return response()->json($result);
+            }
+
+            return response()->json(['error' => 'Interview prep generation failed.'], 500);
+
+        } catch (\Exception $e) {
+            Log::error('Interview prep exception: ' . $e->getMessage());
+            return response()->json(['error' => 'AI service unavailable.'], 500);
+        }
+    }
+
+    /**
      * Delete a specific CV profile.
      */
     public function destroy(Request $request, $id)
