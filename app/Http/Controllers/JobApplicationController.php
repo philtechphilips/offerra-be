@@ -29,7 +29,7 @@ class JobApplicationController extends Controller
             $response = Http::withHeaders([
                 'Authorization' => "Bearer $apiKey",
                 'Content-Type' => 'application/json',
-            ])->post('https://api.deepseek.com/chat/completions', [
+            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
                 'model' => 'deepseek-chat',
                 'messages' => [
                     ['role' => 'system', 'content' => 'You are an AI that detects job postings. Analyze the provided page content and URL. Determine if it is a specific job application page or a job listing. If it is, extract the details. If it is NOT a job page (e.g., a home page, a search result list, or unrelated site), set is_job to false.'],
@@ -188,7 +188,7 @@ class JobApplicationController extends Controller
             $response = Http::withHeaders([
                 'Authorization' => "Bearer $apiKey",
                 'Content-Type' => 'application/json',
-            ])->post('https://api.deepseek.com/chat/completions', [
+            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
                 'model' => 'deepseek-chat',
                 'messages' => [
                     ['role' => 'system', 'content' => 'You are a professional job recruiter. Analyze the job details and extract extra information like summary, tech stack (as array), and any potential contact info or person mentioned. Respond ONLY in JSON format.'],

@@ -6,6 +6,7 @@ use App\Http\Controllers\JobApplicationController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\VerifyEmailController;
 use App\Http\Controllers\CVController;
+use App\Http\Controllers\JobController;
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
@@ -38,9 +39,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/cv/autofill', [CVController::class, 'autofill']);
     Route::post('/cv/match-score', [CVController::class, 'matchScore']);
     Route::post('/cv/generate-bios', [CVController::class, 'generateBios']);
+    Route::post('/cv/refactor', [CVController::class, 'refactorResume']);
+    Route::post('/cv/save-optimized', [CVController::class, 'storeRefactored']);
     Route::delete('/cv/{id}', [CVController::class, 'destroy']);
     Route::put('/cv/{id}/activate', [CVController::class, 'activate']);
 });
+
 
 // Admin Only Routes Example
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(function () {

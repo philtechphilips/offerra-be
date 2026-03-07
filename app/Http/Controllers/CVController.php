@@ -142,7 +142,7 @@ class CVController extends Controller
             $response = Http::withHeaders([
                 'Authorization' => "Bearer $apiKey",
                 'Content-Type' => 'application/json',
-            ])->timeout(45)->post('https://api.deepseek.com/chat/completions', [
+            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
                 'model' => 'deepseek-chat',
                 'messages' => [
                     [
@@ -216,7 +216,7 @@ CRITICAL RULES:
             $response = Http::withHeaders([
                 'Authorization' => "Bearer $apiKey",
                 'Content-Type' => 'application/json',
-            ])->timeout(20)->post('https://api.deepseek.com/chat/completions', [
+            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
                 'model' => 'deepseek-chat',
                 'messages' => [
                     [
@@ -268,7 +268,7 @@ CRITICAL RULES:
             $response = Http::withHeaders([
                 'Authorization' => "Bearer $apiKey",
                 'Content-Type' => 'application/json',
-            ])->timeout(30)->post('https://api.deepseek.com/chat/completions', [
+            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
                 'model' => 'deepseek-chat',
                 'messages' => [
                     [
@@ -294,6 +294,121 @@ CRITICAL RULES:
             Log::error('Bio generation exception: ' . $e->getMessage());
             return response()->json(['error' => 'AI service unavailable.'], 500);
         }
+    }
+
+    /**
+     * Refactor Resume: Suggests optimizations based on a specific job description.
+     */
+    public function refactorResume(Request $request)
+    {
+        $request->validate([
+            'job_description' => 'required|string',
+            'cv_id' => 'nullable|integer',
+        ]);
+
+        $profile = null;
+        if ($request->cv_id) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('id', $request->cv_id)
+                ->first();
+        }
+
+        if (!$profile) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('is_active', true)
+                ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+        }
+
+        if (!$profile || !$profile->parsed_data) {
+            return response()->json(['error' => 'No active CV data found.'], 422);
+        }
+
+        $apiKey = env('DEEPSEEK_API_KEY');
+        if (!$apiKey) {
+            return response()->json(['error' => 'AI key not configured.'], 500);
+        }
+
+        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+        $jobDescription = $request->job_description;
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => "Bearer $apiKey",
+                'Content-Type' => 'application/json',
+            ])->timeout(90)->post('https://api.deepseek.com/chat/completions', [
+                'model' => 'deepseek-chat',
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => 'You are an expert career coach and professional resume writer. Your goal is to help candidates refactor their resume to perfectly match a specific job description. Provide actionable, high-impact suggestions.'
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => "Current CV data:\n{$cvData}\n\nPlease perform a deep analysis and provide a refactored version of the ENTIRE resume to match this Target Job Description:\n{$jobDescription}\n\nCRITICAL INSTRUCTIONS:\n1. PRESERVE ALL LINKS: If there are GitHub, Portfolio, LinkedIn, or Project-specific URLs in the original CV, they MUST be included in the refactored version exactly as they are.\n2. BULLET POINTS FOR PROJECTS: For any 'Projects' section (or similar), format each project as a list where each detail is an explicit line starting with a bullet point (•).\n3. DYNAMIC DISCOVERY: Identify and optimize all important sections from the source (Education, Certifications, Awards, etc.).\n\nRespond strictly in JSON format:\n{\n  \"optimized_summary\": \"Tailored 3-4 sentence professional summary.\",\n  \"key_skills_to_highlight\": [\"Skill 1\", \"Skill 2\", \"etc...\"],\n  \"experience_optimization\": [\n    {\n      \"company\": \"...\",\n      \"original_title\": \"...\",\n      \"tailored_bullets\": [\"Bullet rewritten for impact with keywords\"]\n    }\n  ],\n  \"additional_sections\": [\n    { \"title\": \"Education\", \"content\": \"Condensed education info...\" },\n    { \"title\": \"Projects\", \"content\": \"• Developed [X] using [Y] (link: [URL])\\n• Achieved [Result]...\" },\n    { \"title\": \"Certifications\", \"content\": \"• [Cert Name] - [Issuer]\" }\n  ],\n  \"strategic_advice\": \"One short paragraph of coaching advice for this role.\"\n}"
+                    ]
+                ],
+                'response_format' => ['type' => 'json_object'],
+            ]);
+
+            if ($response->successful()) {
+                $result = json_decode($response->json('choices.0.message.content'), true);
+                return response()->json($result);
+            }
+
+            return response()->json(['error' => 'Refactoring failed.'], 500);
+
+        } catch (\Exception $e) {
+            Log::error('Resume refactor exception: ' . $e->getMessage());
+            return response()->json(['error' => 'AI service unavailable.'], 500);
+        }
+    }
+
+    /**
+     * Store a refactored and manually edited CV.
+     * This allows the user to save their polished version back to the dashboard.
+     */
+    public function storeRefactored(Request $request)
+    {
+        $request->validate([
+            'resume_data' => 'required|array',
+            'profile_name' => 'required|string|max:255',
+        ]);
+
+        $data = $request->resume_data;
+
+        // Deactivate existing
+        UserProfile::where('user_id', $request->user()->id)->update(['is_active' => false]);
+
+        // Create new profile from optimized data
+        $profile = UserProfile::create([
+            'user_id' => $request->user()->id,
+            'cv_filename' => 'optimized_resume.json',
+            'profile_name' => $request->profile_name,
+            'cv_raw_text' => $data['summary'] ?? '', // Store summary as raw for basic searching
+            'parsed_data' => [
+                'full_name' => $data['fullName'] ?? '',
+                'email' => $data['email'] ?? '',
+                'phone' => $data['phone'] ?? '',
+                'location' => $data['location'] ?? '',
+                'summary' => $data['summary'] ?? '',
+                'skills' => $data['skills'] ?? [],
+                'work_experience' => array_map(function ($exp) {
+                    return [
+                        'company' => $exp['company'],
+                        'title' => $exp['title'],
+                        'description' => implode("\n", $exp['bullets'] ?? [])
+                    ];
+                }, $data['experience'] ?? []),
+                'custom_sections' => $data['customSections'] ?? []
+            ],
+            'parsed_at' => now(),
+            'is_active' => true,
+        ]);
+
+        return response()->json([
+            'message' => 'Optimized resume saved to dashboard!',
+            'profile' => $profile
+        ]);
     }
 
 
@@ -396,7 +511,7 @@ CRITICAL RULES:
             $response = Http::withHeaders([
                 'Authorization' => "Bearer $apiKey",
                 'Content-Type' => 'application/json',
-            ])->timeout(30)->post('https://api.deepseek.com/chat/completions', [
+            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
                 'model' => 'deepseek-chat',
                 'messages' => [
                     [
