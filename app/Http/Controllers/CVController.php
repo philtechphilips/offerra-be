@@ -411,6 +411,82 @@ CRITICAL RULES:
         ]);
     }
 
+    /**
+     * Write Proposal: Generates a persuasive job proposal (e.g., for Upwork) using CV data.
+     */
+    public function generateProposal(Request $request)
+    {
+        $request->validate([
+            'job_description' => 'required|string',
+            'cv_id' => 'nullable|integer',
+        ]);
+
+        $profile = null;
+        if ($request->cv_id) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('id', $request->cv_id)
+                ->first();
+        }
+
+        if (!$profile) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('is_active', true)
+                ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+        }
+
+        if (!$profile || !$profile->parsed_data) {
+            return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
+        }
+
+        $apiKey = env('DEEPSEEK_API_KEY');
+        if (!$apiKey) {
+            return response()->json(['error' => 'AI key not configured.'], 500);
+        }
+
+        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+        $jobDescription = $request->job_description;
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => "Bearer $apiKey",
+                'Content-Type' => 'application/json',
+            ])->timeout(90)->post('https://api.deepseek.com/chat/completions', [
+                'model' => 'deepseek-chat',
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => "You are a world-class freelance consultant and sales expert. Your goal is to write a high-converting, irresistible job proposal (specifically for platforms like Upwork) that guarantees an interview.
+
+CRITICAL SUCCESS FACTORS:
+1. THE HOOK: Start with a powerful 1-line hook that immediately addresses the client's problem or needs. DO NOT start with \"Hi, I am...\" or \"I saw your job...\" - start with value.
+2. PERSONALIZED: Reference specific details from the job description to show you've read it carefully.
+3. RESULTS-ORIENTED: Show how your skills (from the provided CV) will directly solve their specific pain points.
+4. PROOF OF WORK: You MUST include 1-2 most relevant projects from the candidate's data. If a project has a URL (GitHub, Demo, etc.), you MUST include the URL directly in the proposal as proof.
+5. CALL TO ACTION: End with a low-friction invitation to chat or hop on a call.
+6. TONE: Professional but approachable. Bold, confident, and punchy. No generic fluff.
+7. FIRST PERSON: Write in the first person as if you ARE the candidate."
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => "My Profile Information:\n{$cvData}\n\nTarget Job Description:\n{$jobDescription}\n\nPlease write a high-converting proposal for this job. Structure it with:\n- A Killer Hook\n- The Solution/Value Proposition\n- Relevant Proof (Showcase the best matching projects and include their URLs found in my data)\n- Call to Action\n\nReturn the response in JSON format:\n{\n  \"proposal\": \"The full text of the proposal...\",\n  \"strategy_used\": \"Explain why this hook and approach were chosen for this specific job.\"\n}"
+                    ]
+                ],
+                'response_format' => ['type' => 'json_object'],
+            ]);
+
+            if ($response->successful()) {
+                $result = json_decode($response->json('choices.0.message.content'), true);
+                return response()->json($result);
+            }
+
+            return response()->json(['error' => 'Proposal generation failed.'], 500);
+
+        } catch (\Exception $e) {
+            Log::error('Proposal generation exception: ' . $e->getMessage());
+            return response()->json(['error' => 'AI service unavailable.'], 500);
+        }
+    }
+
 
     /**
      * Delete a specific CV profile.
