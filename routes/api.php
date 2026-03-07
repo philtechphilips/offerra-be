@@ -7,12 +7,15 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\VerifyEmailController;
 use App\Http\Controllers\CVController;
 use App\Http\Controllers\JobController;
+use App\Http\Controllers\GoogleAuthController;
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.reset');
+
+Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])->name('google.callback');
 
 Route::get('/email/verify/{id}/{hash}', [VerifyEmailController::class, 'verify'])
     ->middleware(['signed'])
@@ -24,8 +27,11 @@ Route::post('/email/verification-notification', [VerifyEmailController::class, '
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', function (Request $request) {
-        return $request->user();
+        return $request->user()->load('googleAccount');
     });
+
+    Route::get('/auth/google/redirect', [GoogleAuthController::class, 'redirect']);
+    Route::post('/auth/google/sync', [GoogleAuthController::class, 'sync']);
     
     Route::get('/jobs', [JobApplicationController::class, 'index']);
     Route::post('/jobs', [JobApplicationController::class, 'store']);

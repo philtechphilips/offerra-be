@@ -43,6 +43,11 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(UserProfile::class);
     }
 
+    public function googleAccount()
+    {
+        return $this->hasOne(GoogleAccount::class);
+    }
+
     /**
      * The attributes that should be hidden for serialization.
      *
@@ -52,6 +57,8 @@ class User extends Authenticatable implements MustVerifyEmail
         'password',
         'remember_token',
     ];
+
+    protected $with = ['googleAccount'];
 
     /**
      * Get the attributes that should be cast.
