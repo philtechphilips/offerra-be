@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Plan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class PlanController extends Controller
 {
@@ -38,14 +40,18 @@ class PlanController extends Controller
             'not_included' => 'nullable|array',
             'is_popular' => 'boolean',
             'btn_text' => 'nullable|string',
+            'is_active' => 'boolean',
         ]);
 
         $validated['slug'] = Str::slug($validated['name']);
 
         $plan = Plan::create($validated);
 
+        // Sync with external providers
+        $this->syncWithExternalProviders($plan);
+
         return response()->json([
-            'message' => 'Plan created successfully',
+            'message' => 'Plan created and synced successfully',
             'plan' => $plan
         ]);
     }
@@ -75,10 +81,85 @@ class PlanController extends Controller
 
         $plan->update($validated);
 
+        // Sync updates with external providers
+        $this->syncWithExternalProviders($plan);
+
         return response()->json([
-            'message' => 'Plan updated successfully',
+            'message' => 'Plan updated and synced successfully',
             'plan' => $plan
         ]);
+    }
+
+    /**
+     * Helper to sync plan with Polar and Paystack
+     */
+    protected function syncWithExternalProviders(Plan $plan)
+    {
+        // 1. Sync with Paystack (NGN)
+        try {
+            if ($plan->paystack_plan_id) {
+                // Update
+                Http::withToken(env('PAYSTACK_SECRET'))
+                    ->put("https://api.paystack.co/plan/{$plan->paystack_plan_id}", [
+                        'name' => $plan->name,
+                        'amount' => $plan->price_ngn * 100, // kobo
+                        'description' => $plan->description
+                    ]);
+            } else {
+                // Create
+                $response = Http::withToken(env('PAYSTACK_SECRET'))
+                    ->post("https://api.paystack.co/plan", [
+                        'name' => $plan->name,
+                        'amount' => $plan->price_ngn * 100,
+                        'interval' => 'monthly',
+                        'description' => $plan->description
+                    ]);
+
+                if ($response->successful()) {
+                    $plan->paystack_plan_id = $response->json()['data']['plan_code'];
+                    $plan->save();
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error("Paystack Sync Error: " . $e->getMessage());
+        }
+
+        // 2. Sync with Polar (USD)
+        try {
+            $polarUrl = env('POLAR_SERVER') === 'sandbox' ? "https://sandbox-api.polar.sh/v1/products" : "https://api.polar.sh/v1/products";
+            
+            $payload = [
+                'name' => $plan->name,
+                'description' => $plan->description,
+                'organization_id' => env('POLAR_ORGANIZATION_ID'),
+                'is_subscription' => true,
+                'prices' => [
+                    [
+                        'amount_type' => 'fixed',
+                        'price_amount' => $plan->price_usd * 100, // cents
+                        'price_currency' => 'usd',
+                        'recurring_interval' => 'month'
+                    ]
+                ]
+            ];
+
+            if ($plan->polar_product_id) {
+                // Polar Update is PATCH /v1/products/:id
+                Http::withToken(env('POLAR_ACCESS_TOKEN'))
+                    ->patch("{$polarUrl}/{$plan->polar_product_id}", $payload);
+            } else {
+                // Create
+                $response = Http::withToken(env('POLAR_ACCESS_TOKEN'))
+                    ->post($polarUrl, $payload);
+
+                if ($response->successful()) {
+                    $plan->polar_product_id = $response->json()['id'];
+                    $plan->save();
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error("Polar Sync Error: " . $e->getMessage());
+        }
     }
 
     /**

@@ -26,7 +26,17 @@ class User extends Authenticatable implements MustVerifyEmail
         'email',
         'password',
         'role',
+        'plan_id',
+        'subscription_provider',
+        'subscription_id',
+        'subscription_status',
+        'subscription_ends_at',
     ];
+
+    public function plan()
+    {
+        return $this->belongsTo(Plan::class);
+    }
 
     public function isAdmin(): bool
     {

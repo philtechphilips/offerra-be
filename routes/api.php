@@ -10,6 +10,10 @@ use App\Http\Controllers\JobController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\PlanController;
+use App\Http\Controllers\PaymentController;
+
+Route::post('/webhooks/paystack', [PaymentController::class, 'handlePaystackWebhook']);
+Route::post('/webhooks/polar', [PaymentController::class, 'handlePolarWebhook']);
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
@@ -29,7 +33,7 @@ Route::post('/email/verification-notification', [VerifyEmailController::class, '
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', function (Request $request) {
-        return $request->user()->load('googleAccount');
+        return $request->user()->load(['googleAccount', 'plan']);
     });
 
     Route::get('/auth/google/redirect', [GoogleAuthController::class, 'redirect']);
@@ -53,6 +57,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/cv/save-optimized', [CVController::class, 'storeRefactored']);
     Route::delete('/cv/{id}', [CVController::class, 'destroy']);
     Route::put('/cv/{id}/activate', [CVController::class, 'activate']);
+
+    // Payments
+    Route::post('/payments/initiate', [PaymentController::class, 'initiate']);
 });
 
 

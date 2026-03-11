@@ -8,7 +8,8 @@ class Plan extends Model
 {
     protected $fillable = [
         'name', 'slug', 'price_usd', 'price_ngn', 'description', 
-        'features', 'not_included', 'is_popular', 'is_active', 'btn_text'
+        'features', 'not_included', 'is_popular', 'is_active', 'btn_text',
+        'polar_product_id', 'paystack_plan_id'
     ];
 
     protected $casts = [
