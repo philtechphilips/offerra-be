@@ -8,6 +8,8 @@ use App\Http\Controllers\VerifyEmailController;
 use App\Http\Controllers\CVController;
 use App\Http\Controllers\JobController;
 use App\Http\Controllers\GoogleAuthController;
+use App\Http\Controllers\AdminController;
+use App\Http\Controllers\PlanController;
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
@@ -54,12 +56,19 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 
-// Admin Only Routes Example
+// Plan Public Access
+Route::get('/plans', [PlanController::class, 'index']);
+
+// Admin Dedicated Routes
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(function () {
-    Route::get('/stats', function () {
-        return response()->json([
-            'total_users' => \App\Models\User::count(),
-            'total_jobs' => \App\Models\JobApplication::count(),
-        ]);
-    });
+    Route::get('/stats', [AdminController::class, 'stats']);
+    Route::get('/users', [AdminController::class, 'users']);
+    Route::put('/users/{id}/role', [AdminController::class, 'updateUserRole']);
+    Route::delete('/users/{id}', [AdminController::class, 'deleteUser']);
+
+    // Admin Billing (Plan) Management
+    Route::get('/plans', [PlanController::class, 'adminIndex']);
+    Route::post('/plans', [PlanController::class, 'store']);
+    Route::put('/plans/{id}', [PlanController::class, 'update']);
+    Route::delete('/plans/{id}', [PlanController::class, 'destroy']);
 });
