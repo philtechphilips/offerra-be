@@ -21,7 +21,7 @@ class GmailSyncService
         $this->client->setRedirectUri(config('services.google.redirect'));
     }
 
-    public function sync(GoogleAccount $account)
+    public function sync(GoogleAccount $account, $timeFilter = null)
     {
         $this->client->setAccessToken([
             'access_token' => $account->access_token,
@@ -56,10 +56,15 @@ class GmailSyncService
         $userEmail = 'me';
 
         try {
+            $q = '(application OR applied OR interview OR offer OR job OR vacancy OR remote OR developer OR software OR engineer OR engineering OR tech OR hire OR hiring OR recruit OR recruiting OR recruiter OR contract OR freelance)';
+            if ($timeFilter) {
+                $q .= " newer_than:{$timeFilter}";
+            }
+
             // Fetch recent messages with keywords
             $messagesResponse = $service->users_messages->listUsersMessages($userEmail, [
                 'maxResults' => 500,
-                'q' => 'subject:(application OR applied OR interview OR offer OR job OR vacancy)'
+                'q' => $q
             ]);
 
             $messagesList = $messagesResponse->getMessages();
@@ -157,6 +162,7 @@ class GmailSyncService
                     - "interview": Request for a screening, interview, or technical test.
                     - "offer": A job offer or contract proposal.
                     - "rejected": Explicit rejection, "not proceeding", or indication of "no interest" from the employer.
+                    IMPORTANT: Do NOT mark as "rejected" if the email simply states a job posting was closed, removed, or expired on a job board (e.g., "A job you applied for was removed"). Only use "rejected" for an explicit rejection from the company regarding the candidates application.
                     Respond ONLY in JSON.'],
                     ['role' => 'user', 'content' => "Subject: {$subject}\nBody: {$bodySnippet}\n\nRespond with JSON: { \"is_job_update\": true, \"details\": { \"company\": \"...\", \"title\": \"...\", \"status\": \"applied/interview/offer/rejected\" } }"]
                 ],
