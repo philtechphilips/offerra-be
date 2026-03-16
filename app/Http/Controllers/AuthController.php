@@ -18,11 +18,16 @@ class AuthController extends Controller
             'password' => 'required|string|min:8|confirmed',
         ]);
 
+        // Find the free plan (Starter Pack)
+        $freePlan = \App\Models\Plan::where('price_usd', 0)->first();
+
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
             'role' => User::ROLE_USER,
+            'plan_id' => $freePlan?->id,
+            'credits' => $freePlan?->credits ?? 0,
         ]);
 
         event(new Registered($user));

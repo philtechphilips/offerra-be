@@ -59,10 +59,10 @@ class PaymentController extends Controller
 
     protected function initiatePolar($user, $plan)
     {
-        // Polar API uses Checkout Create
+        // Polar API v1 Checkout Create
         $url = env('POLAR_SERVER') === 'sandbox' 
-            ? "https://sandbox-api.polar.sh/api/v1/checkouts/custom" 
-            : "https://api.polar.sh/api/v1/checkouts/custom";
+            ? "https://sandbox-api.polar.sh/v1/checkouts" 
+            : "https://api.polar.sh/v1/checkouts";
 
         // If plan has a polar_product_id, we use it. Otherwise we create a custom checkout if allowed.
         // For now, let's assume we use Product IDs if present.
@@ -102,17 +102,40 @@ class PaymentController extends Controller
 
         if ($event['event'] === 'charge.success') {
             $data = $event['data'];
-            $userId = $data['metadata']['user_id'];
-            $planId = $data['metadata']['plan_id'];
+            $metadata = $data['metadata'] ?? [];
+            
+            // Handle case where metadata might be a JSON string
+            if (is_string($metadata)) {
+                $metadata = json_decode($metadata, true);
+            }
+
+            $userId = $metadata['user_id'] ?? null;
+            $planId = $metadata['plan_id'] ?? null;
+
+            if (!$userId || !$planId) {
+                Log::error("Paystack Webhook: Missing User ID or Plan ID in metadata", ['metadata' => $metadata]);
+                return response()->json(['message' => 'Missing metadata'], 400);
+            }
 
             $user = User::find($userId);
-            if ($user) {
+            $plan = Plan::find($planId);
+
+            if ($user && $plan) {
                 $user->update([
                     'plan_id' => $planId,
+                    'credits' => ($user->credits ?? 0) + $plan->credits,
                     'subscription_provider' => 'paystack',
                     'subscription_id' => $data['reference'],
                     'subscription_status' => 'active',
-                    'subscription_ends_at' => now()->addMonth(), // Assuming monthly
+                    'subscription_ends_at' => null, // One-time credit purchase
+                ]);
+                Log::info("Paystack: Credits added for user {$user->id}. New total: {$user->credits}");
+            } else {
+                Log::error("Paystack Webhook: User or Plan not found", [
+                    'userId' => $userId, 
+                    'planId' => $planId, 
+                    'user_found' => !!$user, 
+                    'plan_found' => !!$plan
                 ]);
             }
         }
@@ -131,27 +154,25 @@ class PaymentController extends Controller
         
         Log::info('Polar Webhook Received', ['type' => $type]);
 
-        if ($type === 'checkout.created' || $type === 'subscription.created' || $type === 'subscription.updated') {
-            $data = $event['data'];
-            // For checkout.created, we might wait for order.created or subscription.created
-        }
-
-        if ($type === 'subscription.created' || $type === 'subscription.updated') {
-            $sub = $event['data'];
-            $metadata = $sub['metadata'] ?? [];
+        if ($type === 'order.created') {
+            $order = $event['data'];
+            $metadata = $order['metadata'] ?? [];
             $userId = $metadata['user_id'] ?? null;
             $planId = $metadata['plan_id'] ?? null;
 
             if ($userId && $planId) {
                 $user = User::find($userId);
-                if ($user) {
+                $plan = Plan::find($planId);
+                if ($user && $plan) {
                     $user->update([
                         'plan_id' => $planId,
+                        'credits' => ($user->credits ?? 0) + $plan->credits,
                         'subscription_provider' => 'polar',
-                        'subscription_id' => $sub['id'],
-                        'subscription_status' => $sub['status'] === 'active' ? 'active' : $sub['status'],
-                        'subscription_ends_at' => isset($sub['current_period_end']) ? date('Y-m-d H:i:s', $sub['current_period_end']) : now()->addMonth(),
+                        'subscription_id' => $order['id'],
+                        'subscription_status' => 'active',
+                        'subscription_ends_at' => null,
                     ]);
+                    Log::info("Polar: Credits added for user {$user->id}. New total: {$user->credits}");
                 }
             }
         }

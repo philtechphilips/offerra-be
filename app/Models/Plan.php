@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class Plan extends Model
 {
     protected $fillable = [
-        'name', 'slug', 'price_usd', 'price_ngn', 'description', 
+        'name', 'slug', 'price_usd', 'price_ngn', 'credits', 'description', 
         'features', 'not_included', 'is_popular', 'is_active', 'btn_text',
         'polar_product_id', 'paystack_plan_id'
     ];
@@ -19,5 +19,6 @@ class Plan extends Model
         'is_active' => 'boolean',
         'price_usd' => 'decimal:2',
         'price_ngn' => 'decimal:2',
+        'credits' => 'integer',
     ];
 }

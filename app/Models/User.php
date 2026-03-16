@@ -27,6 +27,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'password',
         'role',
         'plan_id',
+        'credits',
         'subscription_provider',
         'subscription_id',
         'subscription_status',
@@ -80,6 +81,7 @@ class User extends Authenticatable implements MustVerifyEmail
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'credits' => 'integer',
         ];
     }
 }

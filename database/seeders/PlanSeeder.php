@@ -14,64 +14,62 @@ class PlanSeeder extends Seeder
     {
         $plans = [
             [
-                'name' => 'Essential',
-                'slug' => 'essential',
+                'name' => 'Starter Pack',
+                'slug' => 'starter-pack',
                 'price_usd' => 0,
                 'price_ngn' => 0,
-                'description' => 'Perfect for beginners starting their journey.',
+                'credits' => 10,
+                'description' => 'Free credits for new users to explore.',
                 'features' => [
-                    'Track 5 jobs /mo',
-                    'Basic Dashboard',
+                    '10 AI Power Credits',
+                    'Full Dashboard Access',
                     'Real-time status tracking',
                     'Email notifications'
                 ],
-                'not_included' => [
-                    'AI CV Optimization',
-                    'Interview Practice',
-                    'Unlimited History',
-                    'Advanced Analytics'
-                ],
+                'not_included' => [],
                 'is_popular' => false,
-                'btn_text' => 'Current Plan'
+                'btn_text' => 'Get Started'
             ],
             [
-                'name' => 'Pro Track',
-                'slug' => 'pro-track',
+                'name' => 'Pro Booster',
+                'slug' => 'pro-booster',
                 'price_usd' => 9,
                 'price_ngn' => 15000,
-                'description' => 'The sweet spot for active job seekers.',
+                'credits' => 100,
+                'description' => '100 credits for active job seekers.',
                 'features' => [
-                    'Unlimited Auto Tracking',
+                    '100 AI Power Credits',
                     'AI CV Optimization',
                     'Proposal Generator',
-                    'Momentum Analytics',
                     'Gmail Status Sync',
                     'Priority Support'
                 ],
+                'not_included' => [],
                 'is_popular' => true,
-                'btn_text' => 'Upgrade to Pro'
+                'btn_text' => 'Buy Credits'
             ],
             [
-                'name' => 'Elite',
-                'slug' => 'elite',
+                'name' => 'Elite Growth',
+                'slug' => 'elite-growth',
                 'price_usd' => 19,
                 'price_ngn' => 30000,
-                'description' => 'For professionals who want the best edge.',
+                'credits' => 250,
+                'description' => '250 credits for high-volume searching.',
                 'features' => [
-                    'Everything in Pro',
+                    '250 AI Power Credits',
                     'AI Interview Coaching',
                     'Predicted Answers',
                     'Strategic Success Path',
-                    'Dedicated Career Scout',
-                    'Direct Referral Network'
+                    'Dedicated Career Scout'
                 ],
+                'not_included' => [],
                 'is_popular' => false,
-                'btn_text' => 'Go Elite'
+                'btn_text' => 'Get More Credits'
             ]
         ];
 
         foreach ($plans as $plan) {
-            \App\Models\Plan::create($plan);
+            \App\Models\Plan::updateOrCreate(['slug' => $plan['slug']], $plan);
         }
     }
 }

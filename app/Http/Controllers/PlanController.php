@@ -13,9 +13,17 @@ class PlanController extends Controller
     /**
      * Display a listing of active plans for users.
      */
-    public function index()
+    public function index(Request $request)
     {
-        return response()->json(Plan::where('is_active', true)->get());
+        $user = $request->user();
+        $query = Plan::where('is_active', true);
+
+        // If user already has a plan assigned, hide the free ones
+        if ($user && $user->plan_id) {
+            $query->where('price_usd', '>', 0);
+        }
+
+        return response()->json($query->get());
     }
 
     /**
@@ -35,6 +43,7 @@ class PlanController extends Controller
             'name' => 'required|string|max:255',
             'price_usd' => 'required|numeric|min:0',
             'price_ngn' => 'required|numeric|min:0',
+            'credits' => 'required|integer|min:0',
             'description' => 'nullable|string',
             'features' => 'nullable|array',
             'not_included' => 'nullable|array',
@@ -67,6 +76,7 @@ class PlanController extends Controller
             'name' => 'sometimes|required|string|max:255',
             'price_usd' => 'sometimes|required|numeric|min:0',
             'price_ngn' => 'sometimes|required|numeric|min:0',
+            'credits' => 'sometimes|required|integer|min:0',
             'description' => 'nullable|string',
             'features' => 'nullable|array',
             'not_included' => 'nullable|array',
@@ -95,70 +105,83 @@ class PlanController extends Controller
      */
     protected function syncWithExternalProviders(Plan $plan)
     {
-        // 1. Sync with Paystack (NGN)
-        try {
-            if ($plan->paystack_plan_id) {
-                // Update
-                Http::withToken(env('PAYSTACK_SECRET'))
-                    ->put("https://api.paystack.co/plan/{$plan->paystack_plan_id}", [
-                        'name' => $plan->name,
-                        'amount' => $plan->price_ngn * 100, // kobo
-                        'description' => $plan->description
-                    ]);
-            } else {
-                // Create
-                $response = Http::withToken(env('PAYSTACK_SECRET'))
-                    ->post("https://api.paystack.co/plan", [
-                        'name' => $plan->name,
-                        'amount' => $plan->price_ngn * 100,
-                        'interval' => 'monthly',
-                        'description' => $plan->description
-                    ]);
+        // Skip sync for free plans
+        if ($plan->price_usd <= 0 && $plan->price_ngn <= 0) {
+            Log::info("Skipping external sync for free plan: {$plan->name}");
+            return;
+        }
 
-                if ($response->successful()) {
-                    $plan->paystack_plan_id = $response->json()['data']['plan_code'];
-                    $plan->save();
+        // 1. Sync with Paystack (NGN)
+        if ($plan->price_ngn > 0) {
+            try {
+                if ($plan->paystack_plan_id) {
+                    $response = Http::withToken(env('PAYSTACK_SECRET'))
+                        ->put("https://api.paystack.co/plan/{$plan->paystack_plan_id}", [
+                            'name' => $plan->name,
+                            'amount' => (int)($plan->price_ngn * 100), // kobo
+                            'description' => $plan->description
+                        ]);
+                    Log::info("Paystack Update Response for {$plan->name}: " . $response->body());
+                } else {
+                    $response = Http::withToken(env('PAYSTACK_SECRET'))
+                        ->post("https://api.paystack.co/plan", [
+                            'name' => $plan->name,
+                            'amount' => (int)($plan->price_ngn * 100),
+                            'description' => $plan->description
+                        ]);
+
+                    Log::info("Paystack Create Response for {$plan->name}: " . $response->body());
+
+                    if ($response->successful()) {
+                        $plan->paystack_plan_id = $response->json()['data']['plan_code'];
+                        $plan->save();
+                    }
                 }
+            } catch (\Exception $e) {
+                Log::error("Paystack Sync Error: " . $e->getMessage());
             }
-        } catch (\Exception $e) {
-            Log::error("Paystack Sync Error: " . $e->getMessage());
         }
 
         // 2. Sync with Polar (USD)
-        try {
-            $polarUrl = env('POLAR_SERVER') === 'sandbox' ? "https://sandbox-api.polar.sh/v1/products" : "https://api.polar.sh/v1/products";
-            
-            $payload = [
-                'name' => $plan->name,
-                'description' => $plan->description,
-                'organization_id' => env('POLAR_ORGANIZATION_ID'),
-                'is_subscription' => true,
-                'prices' => [
-                    [
-                        'amount_type' => 'fixed',
-                        'price_amount' => $plan->price_usd * 100, // cents
-                        'price_currency' => 'usd',
-                        'recurring_interval' => 'month'
-                    ]
-                ]
-            ];
+        if ($plan->price_usd > 0) {
+            try {
+                $polarUrl = env('POLAR_SERVER') === 'sandbox' ? "https://sandbox-api.polar.sh/v1/products" : "https://api.polar.sh/v1/products";
+                
+                $payload = [
+                    'name' => $plan->name,
+                    'description' => $plan->description,
+                ];
 
-            if ($plan->polar_product_id) {
-                // Polar Update is PATCH /v1/products/:id
-                Http::withToken(env('POLAR_ACCESS_TOKEN'))
-                    ->patch("{$polarUrl}/{$plan->polar_product_id}", $payload);
-            } else {
-                // Create
-                $response = Http::withToken(env('POLAR_ACCESS_TOKEN'))
-                    ->post($polarUrl, $payload);
+                if (!$plan->polar_product_id) {
+                    $payload['is_subscription'] = false;
+                    $payload['prices'] = [
+                        [
+                            'amount_type' => 'fixed',
+                            'price_amount' => (int)($plan->price_usd * 100), // cents
+                            'price_currency' => 'usd',
+                        ]
+                    ];
 
-                if ($response->successful()) {
-                    $plan->polar_product_id = $response->json()['id'];
-                    $plan->save();
+                    $response = Http::withToken(env('POLAR_ACCESS_TOKEN'))
+                        ->post($polarUrl, $payload);
+
+                    Log::info("Polar Create Response for {$plan->name}: " . $response->body());
+
+                    if ($response->successful()) {
+                        $plan->polar_product_id = $response->json()['id'];
+                        $plan->save();
+                    } else {
+                        Log::error("Polar Create Failed for {$plan->name}: " . $response->body());
+                    }
+                } else {
+                    $response = Http::withToken(env('POLAR_ACCESS_TOKEN'))
+                        ->patch("{$polarUrl}/{$plan->polar_product_id}", $payload);
+                    
+                    Log::info("Polar Update Response for {$plan->name}: " . $response->body());
                 }
+            } catch (\Exception $e) {
+                Log::error("Polar Sync Error: " . $e->getMessage());
             }
-        } catch (\Exception $e) {
-            Log::error("Polar Sync Error: " . $e->getMessage());
         }
     }
 
