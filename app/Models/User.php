@@ -59,6 +59,21 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasOne(GoogleAccount::class);
     }
 
+    public function hasCredits($amount): bool
+    {
+        return ($this->credits ?? 0) >= $amount;
+    }
+
+    public function deductCredits($amount): bool
+    {
+        if (!$this->hasCredits($amount)) {
+            return false;
+        }
+
+        $this->decrement('credits', $amount);
+        return true;
+    }
+
     /**
      * The attributes that should be hidden for serialization.
      *

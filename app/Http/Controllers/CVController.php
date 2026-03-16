@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\UserProfile;
+use App\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -203,6 +204,17 @@ CRITICAL RULES:
             return response()->json(['error' => 'No active CV data found.'], 422);
         }
 
+        $cost = Setting::getVal('credit_cost_match_score', 1);
+        $user = $request->user();
+
+        if (!$user->hasCredits($cost)) {
+            return response()->json([
+                'error' => 'Not enough AI credits.',
+                'required' => $cost,
+                'available' => $user->credits ?? 0
+            ], 402);
+        }
+
         $apiKey = env('DEEPSEEK_API_KEY');
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
@@ -232,6 +244,7 @@ CRITICAL RULES:
             ]);
 
             if ($response->successful()) {
+                $user->deductCredits($cost);
                 $result = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($result);
             }
@@ -255,6 +268,17 @@ CRITICAL RULES:
 
         if (!$profile || !$profile->parsed_data) {
             return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
+        }
+
+        $cost = Setting::getVal('credit_cost_social_bios', 3);
+        $user = $request->user();
+
+        if (!$user->hasCredits($cost)) {
+            return response()->json([
+                'error' => 'Not enough AI credits.',
+                'required' => $cost,
+                'available' => $user->credits ?? 0
+            ], 402);
         }
 
         $apiKey = env('DEEPSEEK_API_KEY');
@@ -284,6 +308,7 @@ CRITICAL RULES:
             ]);
 
             if ($response->successful()) {
+                $user->deductCredits($cost);
                 $result = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($result);
             }
@@ -323,6 +348,17 @@ CRITICAL RULES:
             return response()->json(['error' => 'No active CV data found.'], 422);
         }
 
+        $cost = Setting::getVal('credit_cost_cv_optimization', 5);
+        $user = $request->user();
+
+        if (!$user->hasCredits($cost)) {
+            return response()->json([
+                'error' => 'Not enough AI credits.',
+                'required' => $cost,
+                'available' => $user->credits ?? 0
+            ], 402);
+        }
+
         $apiKey = env('DEEPSEEK_API_KEY');
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
@@ -351,6 +387,7 @@ CRITICAL RULES:
             ]);
 
             if ($response->successful()) {
+                $user->deductCredits($cost);
                 $result = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($result);
             }
@@ -438,6 +475,17 @@ CRITICAL RULES:
             return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
         }
 
+        $cost = Setting::getVal('credit_cost_proposal_generation', 2);
+        $user = $request->user();
+
+        if (!$user->hasCredits($cost)) {
+            return response()->json([
+                'error' => 'Not enough AI credits.',
+                'required' => $cost,
+                'available' => $user->credits ?? 0
+            ], 402);
+        }
+
         $apiKey = env('DEEPSEEK_API_KEY');
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
@@ -475,6 +523,7 @@ CRITICAL SUCCESS FACTORS:
             ]);
 
             if ($response->successful()) {
+                $user->deductCredits($cost);
                 $result = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($result);
             }
@@ -513,6 +562,17 @@ CRITICAL SUCCESS FACTORS:
 
         if (!$profile || !$profile->parsed_data) {
             return response()->json(['error' => 'No active CV data found.'], 422);
+        }
+
+        $cost = Setting::getVal('credit_cost_interview_prep', 10);
+        $user = $request->user();
+
+        if (!$user->hasCredits($cost)) {
+            return response()->json([
+                'error' => 'Not enough AI credits.',
+                'required' => $cost,
+                'available' => $user->credits ?? 0
+            ], 402);
         }
 
         $apiKey = env('DEEPSEEK_API_KEY');
@@ -555,6 +615,7 @@ For each question, provide:
             ]);
 
             if ($response->successful()) {
+                $user->deductCredits($cost);
                 $result = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($result);
             }

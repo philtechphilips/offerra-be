@@ -78,4 +78,8 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(functi
     Route::post('/plans', [PlanController::class, 'store']);
     Route::put('/plans/{id}', [PlanController::class, 'update']);
     Route::delete('/plans/{id}', [PlanController::class, 'destroy']);
+
+    // System Settings management
+    Route::get('/settings', [\App\Http\Controllers\SettingsController::class, 'index']);
+    Route::put('/settings', [\App\Http\Controllers\SettingsController::class, 'update']);
 });
