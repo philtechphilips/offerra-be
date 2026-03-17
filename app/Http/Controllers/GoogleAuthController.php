@@ -76,6 +76,7 @@ class GoogleAuthController extends Controller
                     'access_token' => $token['access_token'],
                     'refresh_token' => $token['refresh_token'] ?? $user->googleAccount?->refresh_token,
                     'token_expires_at' => now()->addSeconds($token['expires_in']),
+                    'status' => 'connected',
                 ]
             );
 

@@ -15,6 +15,7 @@ class GoogleAccount extends Model
         'refresh_token',
         'token_expires_at',
         'last_synced_at',
+        'status',
     ];
 
     protected $casts = [

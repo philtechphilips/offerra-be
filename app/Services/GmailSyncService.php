@@ -35,11 +35,18 @@ class GmailSyncService
                     $newToken = $this->client->fetchAccessTokenWithRefreshToken($account->refresh_token);
                     if (isset($newToken['error'])) {
                         Log::error('Gmail Sync: Refresh token failed for ' . $account->email . ': ' . json_encode($newToken));
+                        
+                        // Mark account as disconnected so frontend can prompt reconnect
+                        if ($newToken['error'] === 'invalid_grant') {
+                            $account->update(['status' => 'disconnected']);
+                            Log::warning('Gmail Sync: Marked account ' . $account->email . ' as disconnected. User must reconnect.');
+                        }
                         return;
                     }
                     $account->update([
                         'access_token' => $newToken['access_token'],
                         'token_expires_at' => now()->addSeconds($newToken['expires_in']),
+                        'status' => 'connected',
                     ]);
                     $this->client->setAccessToken($newToken);
                 } catch (\Exception $e) {
