@@ -48,6 +48,13 @@ class SettingSeeder extends Seeder
                 'group' => 'credits',
                 'type' => 'number',
             ],
+            [
+                'key' => 'credit_cost_cover_letter',
+                'value' => '5',
+                'display_name' => 'Cover Letter Generation Cost',
+                'group' => 'credits',
+                'type' => 'number',
+            ],
         ];
 
         foreach ($settings as $setting) {

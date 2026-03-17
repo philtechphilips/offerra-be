@@ -416,23 +416,32 @@ CRITICAL RULES:
         // Deactivate existing
         UserProfile::where('user_id', $request->user()->id)->update(['is_active' => false]);
 
-        // Create new profile from optimized data
-        $profile = UserProfile::create([
+        // Create or Update profile from optimized data
+        $profile = null;
+        if ($request->cv_id) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('id', $request->cv_id)
+                ->first();
+        }
+
+        $profileData = [
             'user_id' => $request->user()->id,
             'cv_filename' => 'optimized_resume.json',
             'profile_name' => $request->profile_name,
-            'cv_raw_text' => $data['summary'] ?? '', // Store summary as raw for basic searching
+            'cv_raw_text' => $data['summary'] ?? '',
             'parsed_data' => [
                 'full_name' => $data['fullName'] ?? '',
                 'email' => $data['email'] ?? '',
                 'phone' => $data['phone'] ?? '',
                 'location' => $data['location'] ?? '',
+                'links' => $data['links'] ?? [],
                 'summary' => $data['summary'] ?? '',
                 'skills' => $data['skills'] ?? [],
                 'work_experience' => array_map(function ($exp) {
                     return [
                         'company' => $exp['company'],
                         'title' => $exp['title'],
+                        'duration' => $exp['duration'] ?? '',
                         'description' => implode("\n", $exp['bullets'] ?? [])
                     ];
                 }, $data['experience'] ?? []),
@@ -440,7 +449,13 @@ CRITICAL RULES:
             ],
             'parsed_at' => now(),
             'is_active' => true,
-        ]);
+        ];
+
+        if ($profile) {
+            $profile->update($profileData);
+        } else {
+            $profile = UserProfile::create($profileData);
+        }
 
         return response()->json([
             'message' => 'Optimized resume saved to dashboard!',
@@ -624,6 +639,97 @@ For each question, provide:
 
         } catch (\Exception $e) {
             Log::error('Interview prep exception: ' . $e->getMessage());
+            return response()->json(['error' => 'AI service unavailable.'], 500);
+        }
+    }
+
+    /**
+     * Generate Cover Letter: Creates a professional cover letter based on CV and JD.
+     */
+    public function generateCoverLetter(Request $request)
+    {
+        $request->validate([
+            'job_description' => 'required|string',
+            'cv_id' => 'nullable|integer',
+        ]);
+
+        $profile = null;
+        if ($request->cv_id) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('id', $request->cv_id)
+                ->first();
+        }
+
+        if (!$profile) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('is_active', true)
+                ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+        }
+
+        if (!$profile || !$profile->parsed_data) {
+            return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
+        }
+
+        $cost = Setting::getVal('credit_cost_cover_letter', 5);
+        $user = $request->user();
+
+        if (!$user->hasCredits($cost)) {
+            return response()->json([
+                'error' => 'Not enough AI credits.',
+                'required' => $cost,
+                'available' => $user->credits ?? 0
+            ], 402);
+        }
+
+        $apiKey = env('DEEPSEEK_API_KEY');
+        if (!$apiKey) {
+            return response()->json(['error' => 'AI key not configured.'], 500);
+        }
+
+        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+        $jobDescription = $request->job_description;
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => "Bearer $apiKey",
+                'Content-Type' => 'application/json',
+            ])->timeout(90)->post('https://api.deepseek.com/chat/completions', [
+                'model' => 'deepseek-chat',
+                'messages' => [
+                    [
+                        'role' => 'system',
+                        'content' => "You are an expert career consultant and professional writer. Your goal is to write a highly persuasive, customized, and high-impact cover letter.
+
+CRITICAL GUIDELINES:
+1. PERSONALIZED: Reference specific requirements and keywords from the job description.
+2. STORYTELLING: Don't just list skills. Connect the candidate's achievements to how they will solve the company's specific problems.
+3. TONE: Professional, enthusiastic, and confident. Avoid cliches like \"I am writing to apply for...\".
+4. STRUCTURE: 
+   - Powerful opening hook.
+   - 2-3 body paragraphs showing evidence of impact.
+   - Strong closing with a call to action.
+5. LENGTH: Keep it between 250-400 words.
+6. FORMAT: Use a professional business letter format but focus on the content.
+7. FIRST PERSON: Write as if you ARE the candidate."
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => "Candidate CV Data:\n{$cvData}\n\nJob description:\n{$jobDescription}\n\nPlease generate a professional cover letter. Respond strictly in JSON format:\n{\n  \"cover_letter\": \"Full text of the cover letter with proper business formatting (Placeholders like [Date], [Hiring Manager Name] are okay)\",\n  \"strategic_approach\": \"Explain the core theme used for this specific cover letter to highlight matching strengths.\"\n}"
+                    ]
+                ],
+                'response_format' => ['type' => 'json_object'],
+            ]);
+
+            if ($response->successful()) {
+                $user->deductCredits($cost);
+                $result = json_decode($response->json('choices.0.message.content'), true);
+                return response()->json($result);
+            }
+
+            return response()->json(['error' => 'Cover letter generation failed.'], 500);
+
+        } catch (\Exception $e) {
+            Log::error('Cover letter exception: ' . $e->getMessage());
             return response()->json(['error' => 'AI service unavailable.'], 500);
         }
     }
