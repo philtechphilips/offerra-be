@@ -31,7 +31,7 @@ Route::post('/email/verification-notification', [VerifyEmailController::class, '
     ->middleware(['auth:sanctum', 'throttle:6,1'])
     ->name('verification.send');
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/user', function (Request $request) {
         return $request->user()->load(['googleAccount', 'plan']);
     });
@@ -60,7 +60,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/cv/{id}/activate', [CVController::class, 'activate']);
 
     // Payments
-    Route::post('/payments/initiate', [PaymentController::class, 'initiate']);
+    Route::post('/payments/initiate', [PaymentController::class, 'initiate'])->middleware('idempotent');
 });
 
 

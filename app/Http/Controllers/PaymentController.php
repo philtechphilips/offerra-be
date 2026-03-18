@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Plan;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -121,6 +122,13 @@ class PaymentController extends Controller
             $plan = Plan::find($planId);
 
             if ($user && $plan) {
+                // GLOBAL IDEMPOTENCY CHECK: Ensure this reference is never processed twice
+                $webhookCacheKey = "webhook:processed:{$data['reference']}";
+                if (Cache::has($webhookCacheKey)) {
+                    Log::info('Paystack Webhook: Reference already processed (Global check)', ['reference' => $data['reference']]);
+                    return response()->json(['status' => 'success']);
+                }
+
                 $user->update([
                     'plan_id' => $planId,
                     'credits' => ($user->credits ?? 0) + $plan->credits,
@@ -129,6 +137,10 @@ class PaymentController extends Controller
                     'subscription_status' => 'active',
                     'subscription_ends_at' => null, // One-time credit purchase
                 ]);
+
+                // Store in cache for 30 days to prevent duplicates
+                Cache::put($webhookCacheKey, true, now()->addDays(30));
+                
                 Log::info("Paystack: Credits added for user {$user->id}. New total: {$user->credits}");
             } else {
                 Log::error("Paystack Webhook: User or Plan not found", [
@@ -164,6 +176,13 @@ class PaymentController extends Controller
                 $user = User::find($userId);
                 $plan = Plan::find($planId);
                 if ($user && $plan) {
+                    // GLOBAL IDEMPOTENCY CHECK
+                    $webhookCacheKey = "webhook:processed:{$order['id']}";
+                    if (Cache::has($webhookCacheKey)) {
+                        Log::info('Polar Webhook: Reference already processed (Global check)', ['reference' => $order['id']]);
+                        return response()->json(['status' => 'success']);
+                    }
+
                     $user->update([
                         'plan_id' => $planId,
                         'credits' => ($user->credits ?? 0) + $plan->credits,
@@ -172,6 +191,10 @@ class PaymentController extends Controller
                         'subscription_status' => 'active',
                         'subscription_ends_at' => null,
                     ]);
+
+                    // Store in cache for 30 days to prevent duplicates
+                    Cache::put($webhookCacheKey, true, now()->addDays(30));
+
                     Log::info("Polar: Credits added for user {$user->id}. New total: {$user->credits}");
                 }
             }
