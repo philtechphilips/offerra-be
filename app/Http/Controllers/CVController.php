@@ -87,11 +87,14 @@ class CVController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        if ($profiles->isEmpty()) {
-            return response()->json(['cvs' => []]);
-        }
+        $activeProfile = $profiles->where('is_active', true)->first() ?? $profiles->first();
 
         return response()->json([
+            'has_cv' => $profiles->isNotEmpty(),
+            'filename' => $activeProfile ? $activeProfile->cv_filename : null,
+            'profile_name' => $activeProfile ? $activeProfile->profile_name : null,
+            'parsed_data' => $activeProfile ? $activeProfile->parsed_data : null,
+            'is_active' => $activeProfile ? (bool)$activeProfile->is_active : false,
             'cvs' => $profiles->map(function ($profile) {
                 return [
                     'id' => $profile->id,
