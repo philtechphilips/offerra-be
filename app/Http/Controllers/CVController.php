@@ -247,7 +247,7 @@ CRITICAL RULES:
             ]);
 
             if ($response->successful()) {
-                $user->deductCredits($cost);
+                $user->deductCredits($cost, "Match Analysis: {$jobTitle} at {$request->company}");
                 $result = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($result);
             }
@@ -311,7 +311,7 @@ CRITICAL RULES:
             ]);
 
             if ($response->successful()) {
-                $user->deductCredits($cost);
+                $user->deductCredits($cost, "Social Bio Generation for Profile");
                 $result = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($result);
             }
@@ -331,7 +331,7 @@ CRITICAL RULES:
     {
         $request->validate([
             'job_description' => 'required|string',
-            'cv_id' => 'nullable|integer',
+            'cv_id' => 'nullable|string',
         ]);
 
         $profile = null;
@@ -390,7 +390,7 @@ CRITICAL RULES:
             ]);
 
             if ($response->successful()) {
-                $user->deductCredits($cost);
+                $user->deductCredits($cost, "Resume Architect: Optimized for Job Description");
                 $result = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($result);
             }
@@ -473,7 +473,7 @@ CRITICAL RULES:
     {
         $request->validate([
             'job_description' => 'required|string',
-            'cv_id' => 'nullable|integer',
+            'cv_id' => 'nullable|string',
         ]);
 
         $profile = null;
@@ -541,7 +541,7 @@ CRITICAL SUCCESS FACTORS:
             ]);
 
             if ($response->successful()) {
-                $user->deductCredits($cost);
+                $user->deductCredits($cost, "High-Impact Proposal Generation");
                 $result = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($result);
             }
@@ -562,7 +562,7 @@ CRITICAL SUCCESS FACTORS:
     {
         $request->validate([
             'job_description' => 'required|string',
-            'cv_id' => 'nullable|integer',
+            'cv_id' => 'nullable|string',
         ]);
 
         $profile = null;
@@ -633,7 +633,7 @@ For each question, provide:
             ]);
 
             if ($response->successful()) {
-                $user->deductCredits($cost);
+                $user->deductCredits($cost, "Interview Prep Guide: Analysis & STAR Method Answers");
                 $result = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($result);
             }
@@ -653,7 +653,7 @@ For each question, provide:
     {
         $request->validate([
             'job_description' => 'required|string',
-            'cv_id' => 'nullable|integer',
+            'cv_id' => 'nullable|string',
         ]);
 
         $profile = null;
@@ -724,7 +724,7 @@ CRITICAL GUIDELINES:
             ]);
 
             if ($response->successful()) {
-                $user->deductCredits($cost);
+                $user->deductCredits($cost, "Professional Cover Letter Generation");
                 $result = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($result);
             }

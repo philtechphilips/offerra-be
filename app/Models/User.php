@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\CreditLog;
+use App\Models\GoogleAccount;
+use App\Models\Transaction;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -36,6 +39,9 @@ class User extends Authenticatable implements MustVerifyEmail
         'subscription_id',
         'subscription_status',
         'subscription_ends_at',
+        'professional_headline',
+        'ai_tone',
+        'notifications_enabled',
     ];
 
     public function plan()
@@ -68,18 +74,38 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasOne(GoogleAccount::class);
     }
 
+    public function transactions()
+    {
+        return $this->hasMany(Transaction::class);
+    }
+
+    public function creditLogs()
+    {
+        return $this->hasMany(CreditLog::class);
+    }
+
+    public function logCreditChange($amount, $type, $description = null)
+    {
+        return $this->creditLogs()->create([
+            'amount' => $amount,
+            'type' => $type,
+            'description' => $description,
+        ]);
+    }
+
     public function hasCredits($amount): bool
     {
         return ($this->credits ?? 0) >= $amount;
     }
 
-    public function deductCredits($amount): bool
+    public function deductCredits($amount, $description = null): bool
     {
         if (!$this->hasCredits($amount)) {
             return false;
         }
 
         $this->decrement('credits', $amount);
+        $this->logCreditChange(-$amount, 'usage', $description);
         return true;
     }
 

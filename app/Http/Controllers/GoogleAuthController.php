@@ -102,4 +102,33 @@ class GoogleAuthController extends Controller
             'last_synced_at' => $account->fresh()->last_synced_at
         ]);
     }
+
+    public function disconnect(Request $request)
+    {
+        $user = $request->user();
+        $account = $user->googleAccount;
+
+        if ($account) {
+            try {
+                $client = new Client();
+                $client->setClientId(config('services.google.client_id'));
+                $client->setClientSecret(config('services.google.client_secret'));
+                
+                // Revoke access
+                if ($account->access_token) {
+                    $client->revokeToken($account->access_token);
+                }
+            } catch (\Exception $e) {
+                Log::error('Google Token Revocation Failed: ' . $e->getMessage());
+                // We proceed with deletion anyway to clear local state
+            }
+
+            $account->delete();
+        }
+
+        return response()->json([
+            'message' => 'Google account disconnected and access revoked.',
+            'user' => $user->fresh(['googleAccount', 'plan'])
+        ]);
+    }
 }

@@ -11,6 +11,7 @@ use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\UserController;
 
 Route::post('/webhooks/paystack', [PaymentController::class, 'handlePaystackWebhook']);
 Route::post('/webhooks/polar', [PaymentController::class, 'handlePolarWebhook']);
@@ -39,6 +40,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::get('/auth/google/redirect', [GoogleAuthController::class, 'redirect']);
     Route::post('/auth/google/sync', [GoogleAuthController::class, 'sync']);
+    Route::post('/auth/google/disconnect', [GoogleAuthController::class, 'disconnect']);
     
     Route::get('/jobs', [JobApplicationController::class, 'index']);
     Route::post('/jobs', [JobApplicationController::class, 'store']);
@@ -62,6 +64,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Payments
     Route::post('/payments/initiate', [PaymentController::class, 'initiate'])->middleware('idempotent');
+
+    // User Profile Settings
+    Route::put('/user/settings', [UserController::class, 'updateSettings']);
+    Route::get('/user/transactions', [UserController::class, 'transactions']);
+    Route::get('/user/credit-logs', [UserController::class, 'creditLogs']);
+    Route::delete('/user', [UserController::class, 'deleteAccount']);
 });
 
 

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 
 use App\Models\JobApplication;
+use App\Models\Setting;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -16,6 +17,11 @@ class JobApplicationController extends Controller
             'html_content' => 'required|string',
             'url' => 'required|url',
         ]);
+
+        $user = $request->user();
+        if (!$user->hasCredits(1)) {
+            return response()->json(['error' => 'Not enough credits for AI detection.'], 402);
+        }
 
         $apiKey = env('DEEPSEEK_API_KEY');
         if (!$apiKey) {
@@ -45,6 +51,7 @@ class JobApplicationController extends Controller
             ]);
 
             if ($response->successful()) {
+                $user->deductCredits(1, "Job Discovery via AI: Attempting to detect job at " . ($validated['url'] ?? 'page'));
                 $aiData = json_decode($response->json('choices.0.message.content'), true);
                 return response()->json($aiData);
             }
@@ -184,6 +191,12 @@ class JobApplicationController extends Controller
 
     private function enrichWithAI(JobApplication $job)
     {
+        $user = $job->user;
+        if (!$user->hasCredits(1)) {
+            Log::warning('Not enough AI credits for enrichment: Job #'.$job->id);
+            return;
+        }
+
         $apiKey = env('DEEPSEEK_API_KEY');
         if (!$apiKey) {
             Log::warning('DEEPSEEK_API_KEY not found in .env');
@@ -210,6 +223,7 @@ class JobApplicationController extends Controller
             ]);
 
             if ($response->successful()) {
+                $user->deductCredits(1, "AI Enrichment for job: {$job->title} at {$job->company}");
                 $aiData = json_decode($response->json('choices.0.message.content'), true);
                 $job->update([
                     'summary' => $aiData['summary'] ?? $job->summary,
