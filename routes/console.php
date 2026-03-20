@@ -31,3 +31,4 @@ Artisan::command('emails:sync-recent', function (GmailSyncService $syncService) 
 })->purpose('Sync emails from the last hour for all connected Google accounts');
 
 Schedule::command('emails:sync-recent')->hourly();
+Schedule::command('app:send-marketing-emails')->daily();

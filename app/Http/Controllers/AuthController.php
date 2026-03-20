@@ -28,7 +28,10 @@ class AuthController extends Controller
             'role' => User::ROLE_USER,
             'plan_id' => $freePlan?->id,
             'credits' => $freePlan?->credits ?? 0,
+            'welcome_email_sent_at' => now(),
         ]);
+
+        \Illuminate\Support\Facades\Mail::to($user->email)->send(new \App\Mail\WelcomeMail($user));
 
         event(new Registered($user));
 

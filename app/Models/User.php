@@ -48,6 +48,11 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->role === self::ROLE_ADMIN;
     }
 
+    public function isPro(): bool
+    {
+        return $this->plan && $this->plan->price_usd > 0;
+    }
+
     public function jobApplications()
     {
         return $this->hasMany(JobApplication::class);
