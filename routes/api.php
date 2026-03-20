@@ -88,7 +88,10 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(functi
     Route::get('/stats', [AdminController::class, 'stats']);
     Route::get('/users', [AdminController::class, 'users']);
     Route::put('/users/{id}/role', [AdminController::class, 'updateUserRole']);
+    Route::post('/users/{id}/credits', [AdminController::class, 'updateCredits']);
     Route::delete('/users/{id}', [AdminController::class, 'deleteUser']);
+
+    Route::get('/transactions', [AdminController::class, 'transactions']);
 
     // Admin Billing (Plan) Management
     Route::get('/plans', [PlanController::class, 'adminIndex']);

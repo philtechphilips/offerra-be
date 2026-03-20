@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\JobApplication;
+use App\Models\Transaction;
+use App\Models\CreditLog;
+use App\Models\Plan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -15,21 +18,35 @@ class AdminController extends Controller
         $totalJobs = JobApplication::count();
         $recentUsers = User::where('created_at', '>=', now()->subDays(7))->count();
         $activeUsers = User::has('jobApplications')->count();
-        
+
+        // Revenue Stats
+        $totalRevenue = Transaction::where('status', 'success')->sum('amount');
+        $monthlyRevenue = Transaction::where('status', 'success')
+            ->where('created_at', '>=', now()->subDays(30))
+            ->sum('amount');
+
         // Growth stats (last 30 days)
         $usersLastMonth = User::where('created_at', '>=', now()->subDays(30))->count();
         $jobsLastMonth = JobApplication::where('created_at', '>=', now()->subDays(30))->count();
-        
+
         // Distribution by status
         $jobDistribution = JobApplication::select('status', DB::raw('count(*) as total'))
             ->groupBy('status')
             ->get();
-            
-        // Top 5 companies
-        $topCompanies = JobApplication::select('company', DB::raw('count(*) as total'))
-            ->groupBy('company')
-            ->orderByDesc('total')
+
+        // Top Selling Plans
+        $popularPlans = Plan::withCount(['transactions' => function($q) {
+                $q->where('status', 'success');
+            }])
+            ->orderByDesc('transactions_count')
             ->limit(5)
+            ->get();
+
+        // Daily Revenue (last 30 days)
+        $dailyRevenue = Transaction::where('status', 'success')
+            ->where('created_at', '>=', now()->subDays(30))
+            ->select(DB::raw('DATE(created_at) as date'), DB::raw('SUM(amount) as total'))
+            ->groupBy('date')
             ->get();
 
         return response()->json([
@@ -38,13 +55,59 @@ class AdminController extends Controller
                 'total_jobs' => $totalJobs,
                 'recent_users_7d' => $recentUsers,
                 'active_users' => $activeUsers,
+                'total_revenue' => $totalRevenue,
+                'monthly_revenue' => $monthlyRevenue,
                 'growth' => [
                     'users_30d' => $usersLastMonth,
                     'jobs_30d' => $jobsLastMonth
                 ]
             ],
             'distribution' => $jobDistribution,
-            'top_companies' => $topCompanies
+            'popular_plans' => $popularPlans,
+            'daily_revenue' => $dailyRevenue
+        ]);
+    }
+
+    public function transactions(Request $request)
+    {
+        $query = Transaction::with(['user:id,name,email', 'plan:id,name']);
+
+        if ($request->has('search')) {
+            $search = $request->get('search');
+            $query->whereHas('user', function($q) use ($search) {
+                $q->where('name', 'like', "%$search%")
+                  ->orWhere('email', 'like', "%$search%");
+            })->orWhere('reference', 'like', "%$search%");
+        }
+
+        if ($request->has('status')) {
+            $query->where('status', $request->get('status'));
+        }
+
+        $transactions = $query->latest()->paginate(20);
+
+        return response()->json($transactions);
+    }
+
+    public function updateCredits(Request $request, $id)
+    {
+        $request->validate([
+            'amount' => 'required|integer',
+            'type' => 'required|string', // e.g., 'bonus', 'correction'
+            'description' => 'nullable|string'
+        ]);
+
+        $user = User::findOrFail($id);
+        $amount = $request->amount;
+
+        $user->credits += $amount;
+        $user->save();
+
+        $user->logCreditChange($amount, 'admin_adj', $request->description ?: "Admin Adjustment: " . $request->type);
+
+        return response()->json([
+            'message' => 'User credits updated successfully',
+            'new_credits' => $user->credits
         ]);
     }
 
