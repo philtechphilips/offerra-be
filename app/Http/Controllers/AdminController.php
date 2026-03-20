@@ -49,6 +49,13 @@ class AdminController extends Controller
             ->groupBy('date')
             ->get();
 
+        // Top 5 companies
+        $topCompanies = JobApplication::select('company', DB::raw('count(*) as total'))
+            ->groupBy('company')
+            ->orderByDesc('total')
+            ->limit(5)
+            ->get();
+
         return response()->json([
             'stats' => [
                 'total_users' => $totalUsers,
@@ -64,7 +71,8 @@ class AdminController extends Controller
             ],
             'distribution' => $jobDistribution,
             'popular_plans' => $popularPlans,
-            'daily_revenue' => $dailyRevenue
+            'daily_revenue' => $dailyRevenue,
+            'top_companies' => $topCompanies
         ]);
     }
 
