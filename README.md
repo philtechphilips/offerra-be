@@ -1,59 +1,70 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# 🛡️ Offerra Backend: The Core Engine
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+The Offerra Backend is a robust, enterprise-grade API built with **Laravel 12 (PHP 8.3+)**. It handles all critical business logic, from job tracking to secure payment processing.
 
-## About Laravel
+![Backend Architecture](https://via.placeholder.com/1200x500?text=Laravel+Backend+Architecture)
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## 🧩 Module Breakdown
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+### 1. 💳 Payment & Webhook Intelligence
+*   **Provider Interfacing**: Native support for **Paystack** and **Polar (Stripe)**.
+*   **Atomic Transactions (`DB::transaction`)**: Every webhook execution is wrapped in a transaction. If any part fails (e.g., mail sending or notification dispatch), the credits are automatically rolled back, ensuring zero accidental loss for the platform.
+*   **Idempotency Engine**: Uses `Cache::put` with short TTLs to prevent processing the same payment reference twice during simultaneous provider retries.
+*   **Credit Logs (`credit_logs`)**: Centralized ledger for all credit movements (bonus, purchase, or consumption).
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+### 2. 🔔 Notification System (`notifications`)
+*   **Polymorphic Database Channel**: Uses Laravel’s `notifiable_id` and `notifiable_type` with **UUIDs** to link alerts to any model.
+*   **Generic Notification Class**: A unified `GenericNotification` class that handles titles, messages, and action URLs across the dashboard.
+*   **Trigger Events**: 
+    *   **Welcome**: Sent on registration.
+    *   **Payment Success**: Triggered immediately after webhook confirmation.
+    *   **CV Processor**: Triggered when AI processing completes.
 
-## Learning Laravel
+### 3. 🛡️ Admin & Control logic
+*   **Revenue Engine**: Aggregated SQL queries for Sales Velocity, Monthly Revenue, and Popular Plans.
+*   **Manual Credit Overrides**: Secure endpoints to manually adjust user balances for support/bonus purposes.
+*   **Role Middleware**: Custom `role:admin` middleware to protect management endpoints.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+---
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## 🏗️ Technical Architecture
 
-## Laravel Sponsors
+*   **UUID Primary Keys**: Every database table uses `uuid()` as its ID for security and obfuscation.
+*   **Eloquent Relationships**: 
+    *   `User` ↔ `JobApplication` (HasMany)
+    *   `User` ↔ `Transaction` (HasMany)
+    *   `Plan` ↔ `Transaction` (HasMany)
+*   **Sanctum Authentication**: Token-based security for both the Frontend and Chrome Extension.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+---
 
-### Premium Partners
+## 🚀 Setup & Installation
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+1.  **Clone & Install**:
+    ```bash
+    composer install
+    ```
+2.  **Environment Configuration**:
+    Copy `.env.example` to `.env` and configure:
+    *   `DB_DATABASE`, `PAYSTACK_SECRET`, `POLAR_API_KEY`, `FRONTEND_URL`.
+3.  **Database Migration**:
+    ```bash
+    php artisan migrate:fresh --seed
+    ```
+4.  **Running the Server**:
+    ```bash
+    php artisan serve
+    ```
 
-## Contributing
+---
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## 📸 Backend UI & Logs
 
-## Code of Conduct
+| Dashboard Logs | Payment Receipt Email | 
+| :---: | :---: |
+| ![Logs Screenshot](https://via.placeholder.com/400x250?text=Laravel+Error+Logs) | ![Receipt Screenshot](https://via.placeholder.com/400x250?text=Branded+Receipt+Email) |
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+---
 
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## 📄 License
+Copyright © 2026 Offerra Backend.
