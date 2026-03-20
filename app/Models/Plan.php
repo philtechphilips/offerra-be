@@ -26,4 +26,9 @@ class Plan extends Model
         'price_ngn' => 'decimal:2',
         'credits' => 'integer',
     ];
+
+    public function transactions()
+    {
+        return $this->hasMany(Transaction::class);
+    }
 }
