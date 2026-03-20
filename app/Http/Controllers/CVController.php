@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\UserProfile;
 use App\Models\Setting;
+use App\Notifications\GenericNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -69,6 +70,14 @@ class CVController extends Controller
                 'parsed_at' => now(),
             ]);
         }
+
+        // Send Notification
+        $request->user()->notify(new GenericNotification(
+            'CV Uploaded',
+            'AI has successfully analyzed and parsed your resume.',
+            'info',
+            '/dashboard/profile'
+        ));
 
         return response()->json([
             'message' => 'CV uploaded and parsed successfully.',

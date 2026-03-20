@@ -22,8 +22,10 @@ class PlanController extends Controller
         if ($user && $user->plan_id) {
             $query->where('price_usd', '>', 0);
         }
+        
+        $plans = $query->orderBy('price_usd', 'asc')->get();
 
-        return response()->json($query->get());
+        return response()->json($plans);
     }
 
     /**

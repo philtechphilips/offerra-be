@@ -39,7 +39,7 @@ class PaymentReceiptMail extends Mailable
     public function content(): Content
     {
         return new Content(
-            view: 'emails.receipt',
+            markdown: 'emails.receipt',
         );
     }
 }

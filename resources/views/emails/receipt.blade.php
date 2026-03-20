@@ -1,6 +1,7 @@
 <x-mail::message>
-<div style="text-align: center; margin-bottom: 24px;">
-    <img src="{{ config('app.frontend_url') }}/logo.png" alt="Offerra Logo" style="width: 150px; height: auto;">
+<div style="text-align: center; margin-bottom: 30px;">
+    <img src="https://offerra.click/logo.png" alt="Offerra" style="width: 64px; height: auto; border-radius: 16px;">
+    <div style="font-size: 24px; font-weight: 900; color: #1C4ED8; letter-spacing: -0.025em; text-transform: uppercase; margin-top: 12px;">Offerra</div>
 </div>
 
 # Payment Successful!
@@ -12,7 +13,11 @@ Thank you for your purchase. We've successfully processed your payment for the *
 Your account has been credited with **{{ $transaction->plan->credits }} credits**.
 
 ### Order Receipt
-<div style="background-color: #f9f9f9; padding: 20px; border-radius: 12px; border: 1px solid #e2e2e2;">
+<div style="background-color: #f9f9f9; padding: 25px; border-radius: 12px; border: 1px solid #e2e2e2;">
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px;">
+        <img src="{{ config('app.frontend_url') }}/logo.png" alt="O" style="width: 24px; height: auto;">
+        <span style="font-size: 14px; font-weight: 900; color: #1C4ED8; letter-spacing: -0.05em; text-transform: uppercase;">Payment Receipt</span>
+    </div>
     <table style="width: 100%; font-size: 14px; color: #555;">
         <tr>
             <td style="padding-bottom: 8px;"><strong>Order ID:</strong></td>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Notifications\GenericNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -32,6 +33,14 @@ class AuthController extends Controller
         ]);
 
         \Illuminate\Support\Facades\Mail::to($user->email)->send(new \App\Mail\WelcomeMail($user));
+
+        // Send Notification
+        $user->notify(new GenericNotification(
+            'Welcome to Offerra!',
+            'We are excited to help you land your dream job. Start by uploading your CV.',
+            'info',
+            '/dashboard'
+        ));
 
         event(new Registered($user));
 

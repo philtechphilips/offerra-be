@@ -6,11 +6,13 @@ use App\Models\Plan;
 use App\Models\User;
 use App\Models\Transaction;
 use App\Mail\PaymentReceiptMail;
+use App\Notifications\GenericNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\DB;
 
 class PaymentController extends Controller
 {
@@ -125,46 +127,58 @@ class PaymentController extends Controller
             $plan = Plan::find($planId);
 
             if ($user && $plan) {
-                // GLOBAL IDEMPOTENCY CHECK: Ensure this reference is never processed twice
+                // GLOBAL IDEMPOTENCY CHECK
                 $webhookCacheKey = "webhook:processed:{$data['reference']}";
                 if (Cache::has($webhookCacheKey)) {
                     Log::info('Paystack Webhook: Reference already processed (Global check)', ['reference' => $data['reference']]);
                     return response()->json(['status' => 'success']);
                 }
 
-                $user->update([
-                    'plan_id' => $planId,
-                    'credits' => ($user->credits ?? 0) + $plan->credits,
-                    'subscription_provider' => 'paystack',
-                    'subscription_id' => $data['reference'],
-                    'subscription_status' => 'active',
-                    'subscription_ends_at' => null, // One-time credit purchase
-                ]);
+                DB::transaction(function () use ($user, $plan, $data, $metadata, $planId, $webhookCacheKey) {
+                    $user->update([
+                        'plan_id' => $planId,
+                        'credits' => ($user->credits ?? 0) + $plan->credits,
+                        'subscription_provider' => 'paystack',
+                        'subscription_id' => $data['reference'],
+                        'subscription_status' => 'active',
+                        'subscription_ends_at' => null,
+                    ]);
 
-                // Log Credit Change
-                $user->logCreditChange($plan->credits, 'top-up', "Purchased {$plan->name} pack via Paystack");
+                    // Log Credit Change
+                    $user->logCreditChange($plan->credits, 'top-up', "Purchased {$plan->name} pack via Paystack");
 
-                // Record Transaction
-                $transaction = Transaction::create([
-                    'user_id' => $user->id,
-                    'plan_id' => $plan->id,
-                    'amount' => $data['amount'] / 100, // Paystack amount is in kobo
-                    'currency' => $data['currency'] ?? 'NGN',
-                    'provider' => 'paystack',
-                    'reference' => $data['reference'],
-                    'status' => 'success',
-                    'metadata' => $metadata,
-                ]);
+                    // Send Notification
+                    $user->notify(new GenericNotification(
+                        'Top-up Successful', 
+                        "Successfully added {$plan->credits} credits to your account via Paystack.",
+                        'success',
+                        '/dashboard/billing'
+                    ));
 
-                // Send Receipt
-                try {
-                    Mail::to($user->email)->send(new PaymentReceiptMail($transaction));
-                } catch (\Exception $e) {
-                    Log::error("Paystack Receipt Email Failed: " . $e->getMessage());
-                }
+                    // Record Transaction
+                    $transaction = Transaction::create([
+                        'user_id' => $user->id,
+                        'plan_id' => $plan->id,
+                        'amount' => $data['amount'] / 100,
+                        'currency' => $data['currency'] ?? 'NGN',
+                        'provider' => 'paystack',
+                        'reference' => $data['reference'],
+                        'status' => 'success',
+                        'metadata' => $metadata,
+                    ]);
 
-                // Store in cache for 30 days to prevent duplicates
-                Cache::put($webhookCacheKey, true, now()->addDays(30));
+                    // Send Receipt (Inside transaction ensures it's recordable, but ideally outside to avoid blocking DB on mailer)
+                    // But if it fails, we want the transaction to fail?
+                    // Actually, Mail is usually async or we catch it.
+                    try {
+                        Mail::to($user->email)->send(new PaymentReceiptMail($transaction));
+                    } catch (\Exception $e) {
+                        Log::error("Paystack Receipt Email Failed: " . $e->getMessage());
+                    }
+
+                    // Store in cache for 30 days
+                    Cache::put($webhookCacheKey, true, now()->addDays(30));
+                });
                 
                 Log::info("Paystack: Credits added for user {$user->id}. New total: {$user->credits}");
             } else {
@@ -208,39 +222,49 @@ class PaymentController extends Controller
                         return response()->json(['status' => 'success']);
                     }
 
-                    $user->update([
-                        'plan_id' => $planId,
-                        'credits' => ($user->credits ?? 0) + $plan->credits,
-                        'subscription_provider' => 'polar',
-                        'subscription_id' => $order['id'],
-                        'subscription_status' => 'active',
-                        'subscription_ends_at' => null,
-                    ]);
+                    DB::transaction(function () use ($user, $plan, $order, $metadata, $planId, $webhookCacheKey) {
+                        $user->update([
+                            'plan_id' => $planId,
+                            'credits' => ($user->credits ?? 0) + $plan->credits,
+                            'subscription_provider' => 'polar',
+                            'subscription_id' => $order['id'],
+                            'subscription_status' => 'active',
+                            'subscription_ends_at' => null,
+                        ]);
 
-                    // Log Credit Change
-                    $user->logCreditChange($plan->credits, 'top-up', "Purchased {$plan->name} pack via Polar");
+                        // Log Credit Change
+                        $user->logCreditChange($plan->credits, 'top-up', "Purchased {$plan->name} pack via Polar");
 
-                    // Record Transaction
-                    $transaction = Transaction::create([
-                        'user_id' => $user->id,
-                        'plan_id' => $plan->id,
-                        'amount' => $order['amount'] / 100, // Polar amount is in cents
-                        'currency' => strtoupper($order['currency'] ?? 'USD'),
-                        'provider' => 'polar',
-                        'reference' => $order['id'],
-                        'status' => 'success',
-                        'metadata' => $metadata,
-                    ]);
+                        // Send Notification
+                        $user->notify(new GenericNotification(
+                            'Top-up Successful', 
+                            "Successfully added {$plan->credits} credits to your account via Polar.",
+                            'success',
+                            '/dashboard/billing'
+                        ));
 
-                    // Send Receipt
-                    try {
-                        Mail::to($user->email)->send(new PaymentReceiptMail($transaction));
-                    } catch (\Exception $e) {
-                        Log::error("Polar Receipt Email Failed: " . $e->getMessage());
-                    }
+                        // Record Transaction
+                        $transaction = Transaction::create([
+                            'user_id' => $user->id,
+                            'plan_id' => $plan->id,
+                            'amount' => $order['amount'] / 100,
+                            'currency' => strtoupper($order['currency'] ?? 'USD'),
+                            'provider' => 'polar',
+                            'reference' => $order['id'],
+                            'status' => 'success',
+                            'metadata' => $metadata,
+                        ]);
 
-                    // Store in cache for 30 days to prevent duplicates
-                    Cache::put($webhookCacheKey, true, now()->addDays(30));
+                        // Send Receipt
+                        try {
+                            Mail::to($user->email)->send(new PaymentReceiptMail($transaction));
+                        } catch (\Exception $e) {
+                            Log::error("Polar Receipt Email Failed: " . $e->getMessage());
+                        }
+
+                        // Store in cache for 30 days
+                        Cache::put($webhookCacheKey, true, now()->addDays(30));
+                    });
 
                     Log::info("Polar: Credits added for user {$user->id}. New total: {$user->credits}");
                 }

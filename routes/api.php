@@ -12,6 +12,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\NotificationController;
 
 Route::post('/webhooks/paystack', [PaymentController::class, 'handlePaystackWebhook']);
 Route::post('/webhooks/polar', [PaymentController::class, 'handlePolarWebhook']);
@@ -70,6 +71,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/user/transactions', [UserController::class, 'transactions']);
     Route::get('/user/credit-logs', [UserController::class, 'creditLogs']);
     Route::delete('/user', [UserController::class, 'deleteAccount']);
+
+    // Notifications
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::put('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+    Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 });
 
 
