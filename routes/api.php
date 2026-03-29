@@ -17,6 +17,27 @@ use App\Http\Controllers\NotificationController;
 Route::post('/webhooks/paystack', [PaymentController::class, 'handlePaystackWebhook']);
 Route::post('/webhooks/polar', [PaymentController::class, 'handlePolarWebhook']);
 
+Route::get('/cron/run', function (Request $request) {
+    $secret = $request->query('secret');
+    if ($secret !== env('CRON_SECRET')) {
+        return response()->json(['message' => 'Unauthorized'], 401);
+    }
+
+    try {
+        \Illuminate\Support\Facades\Artisan::call('schedule:run');
+        $output = \Illuminate\Support\Facades\Artisan::output();
+        return response()->json([
+            'message' => 'Cron job executed successfully',
+            'output' => $output
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Failed to execute cron job',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+});
+
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
