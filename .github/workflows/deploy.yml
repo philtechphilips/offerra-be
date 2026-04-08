@@ -1,0 +1,56 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            set -e
+
+            TIMESTAMP=$(date +%Y%m%d%H%M%S)
+            RELEASE_DIR=/var/www/offerra/releases/$TIMESTAMP
+
+            echo "--- Creating new release directory ---"
+            mkdir -p $RELEASE_DIR
+
+            echo "--- Cloning latest code ---"
+            git clone -b main https://github.com/YOUR_REPO.git $RELEASE_DIR
+
+            cd $RELEASE_DIR
+
+            echo "--- Installing dependencies ---"
+            composer install --no-dev --optimize-autoloader --no-interaction
+
+            echo "--- Copying .env ---"
+            cp /var/www/offerra/shared/.env $RELEASE_DIR/.env
+
+            echo "--- Running migrations ---"
+            php artisan migrate --force
+
+            echo "--- Optimizing Laravel ---"
+            php artisan optimize
+
+            echo "--- Switching current symlink ---"
+            ln -sfn $RELEASE_DIR /var/www/offerra/current
+
+            echo "--- Restarting queue ---"
+            php artisan queue:restart || true
+
+            echo "--- Cleanup old releases (keep last 3) ---"
+            cd /var/www/offerra/releases
+            ls -1t | tail -n +4 | xargs -r rm -rf
+
+            echo "--- Deployment successful ---"
