@@ -25,34 +25,40 @@ jobs:
             TIMESTAMP=$(date +%Y%m%d%H%M%S)
             RELEASE_DIR=/var/www/offerra/releases/$TIMESTAMP
 
-            echo "--- Creating new release directory ---"
+            echo "--- Creating release ---"
             mkdir -p $RELEASE_DIR
 
-            echo "--- Cloning latest code ---"
+            echo "--- Cloning repo ---"
             git clone -b master git@github.com:philtechphilips/offerra-be.git $RELEASE_DIR
 
             cd $RELEASE_DIR
 
-            echo "--- Installing dependencies ---"
+            echo "--- Install dependencies ---"
             composer install --no-dev --optimize-autoloader --no-interaction
 
-            echo "--- Copying .env ---"
+            echo "--- Setup .env ---"
             cp /var/www/offerra/shared/.env $RELEASE_DIR/.env
 
-            echo "--- Running migrations ---"
+            echo "--- Laravel setup ---"
+            php artisan key:generate --force
             php artisan migrate --force
-
-            echo "--- Optimizing Laravel ---"
+            php artisan config:clear
+            php artisan route:clear
+            php artisan view:clear
             php artisan optimize
 
-            echo "--- Switching current symlink ---"
+            echo "--- Fix permissions ---"
+            chmod -R 775 storage bootstrap/cache
+
+            echo "--- Switch symlink ---"
             ln -sfn $RELEASE_DIR /var/www/offerra/current
 
-            echo "--- Restarting queue ---"
+            echo "--- Reload services ---"
             php artisan queue:restart || true
+            sudo systemctl reload nginx
 
-            echo "--- Cleanup old releases (keep last 3) ---"
+            echo "--- Cleanup old releases ---"
             cd /var/www/offerra/releases
             ls -1t | tail -n +4 | xargs -r rm -rf
 
-            echo "--- Deployment successful ---"
+            echo "--- Done ---"
