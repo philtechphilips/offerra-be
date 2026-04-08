@@ -29,7 +29,7 @@ jobs:
             mkdir -p $RELEASE_DIR
 
             echo "--- Cloning latest code ---"
-            git clone -b master $REPO_URL $RELEASE_DIR
+            git clone -b master git@github.com:philtechphilips/offerra-be.git $RELEASE_DIR
 
             cd $RELEASE_DIR
 
