@@ -25,40 +25,44 @@ jobs:
             TIMESTAMP=$(date +%Y%m%d%H%M%S)
             RELEASE_DIR=/var/www/offerra/releases/$TIMESTAMP
 
-            echo "--- Creating release ---"
+            echo "--- Creating new release directory ---"
             mkdir -p $RELEASE_DIR
 
-            echo "--- Cloning repo ---"
+            echo "--- Cloning latest code ---"
             git clone -b master git@github.com:philtechphilips/offerra-be.git $RELEASE_DIR
 
             cd $RELEASE_DIR
 
-            echo "--- Install dependencies ---"
+            echo "--- Installing dependencies ---"
             composer install --no-dev --optimize-autoloader --no-interaction
 
-            echo "--- Setup .env ---"
-            cp /var/www/offerra/shared/.env $RELEASE_DIR/.env
+            echo "--- Setting up shared .env ---"
+            ln -sfn /var/www/offerra/shared/.env $RELEASE_DIR/.env
 
-            echo "--- Laravel setup ---"
-            php artisan key:generate --force
+            echo "--- Setting up shared storage ---"
+            rm -rf $RELEASE_DIR/storage
+            ln -sfn /var/www/offerra/shared/storage $RELEASE_DIR/storage
+
+            echo "--- Fixing permissions ---"
+            chown -R www-data:www-data /var/www/offerra/shared
+            chown -R www-data:www-data $RELEASE_DIR
+            chmod -R 775 /var/www/offerra/shared/storage
+            chmod -R 775 $RELEASE_DIR/bootstrap/cache
+
+            echo "--- Running migrations ---"
             php artisan migrate --force
-            php artisan config:clear
-            php artisan route:clear
-            php artisan view:clear
+
+            echo "--- Optimizing Laravel ---"
             php artisan optimize
 
-            echo "--- Fix permissions ---"
-            chmod -R 775 storage bootstrap/cache
-
-            echo "--- Switch symlink ---"
+            echo "--- Switching current symlink ---"
             ln -sfn $RELEASE_DIR /var/www/offerra/current
 
-            echo "--- Reload services ---"
+            echo "--- Restarting queue ---"
             php artisan queue:restart || true
-            sudo systemctl reload nginx
 
-            echo "--- Cleanup old releases ---"
+            echo "--- Cleanup old releases (keep last 3) ---"
             cd /var/www/offerra/releases
             ls -1t | tail -n +4 | xargs -r rm -rf
 
-            echo "--- Done ---"
+            echo "--- Deployment successful ---"
