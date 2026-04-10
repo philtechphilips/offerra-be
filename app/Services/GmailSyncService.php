@@ -153,7 +153,6 @@ class GmailSyncService
         $apiKey = env('DEEPSEEK_API_KEY');
         if (!$apiKey) return;
 
-        // Truncate body
         $bodySnippet = substr($body, 0, 4000);
 
         try {
@@ -163,52 +162,84 @@ class GmailSyncService
             ])->timeout(30)->post('https://api.deepseek.com/chat/completions', [
                 'model' => 'deepseek-chat',
                 'messages' => [
-                    ['role' => 'system', 'content' => 'You are an AI that manages job application status updates. Analyze the email to identify the company name, job title, and the current status based on the communication. 
-                    Possible statuses: 
-                    - "applied": Confirmation of application receipt.
-                    - "interview": Request for a screening, interview, or technical test.
-                    - "offer": A job offer or contract proposal.
-                    - "rejected": Explicit rejection, "not proceeding", or indication of "no interest" from the employer.
-                    IMPORTANT: Do NOT mark as "rejected" if the email simply states a job posting was closed, removed, or expired on a job board (e.g., "A job you applied for was removed"). Only use "rejected" for an explicit rejection from the company regarding the candidates application.
-                    Respond ONLY in JSON.'],
-                    ['role' => 'user', 'content' => "Subject: {$subject}\nBody: {$bodySnippet}\n\nRespond with JSON: { \"is_job_update\": true, \"details\": { \"company\": \"...\", \"title\": \"...\", \"status\": \"applied/interview/offer/rejected\" } }"]
+                    ['role' => 'system', 'content' => 'You are an AI that tracks job application progress from emails. Your ONLY job is to detect emails where the USER has actively applied to a job or received a follow-up on an application they submitted.
+
+CLASSIFY as is_application_email: true ONLY for:
+- Application confirmation/receipt emails ("Thank you for applying", "We received your application")
+- Interview invitations or scheduling requests from the company
+- Job offer or contract proposals from the company
+- Rejection emails from the company about a specific application the user submitted
+
+CLASSIFY as is_application_email: false for:
+- Job alert emails (LinkedIn, Indeed, Upwork, etc.) showing available jobs
+- Recruiter cold outreach ("Are you open to new opportunities?")
+- Job board newsletters or recommendations
+- Emails about a job listing being closed/removed/expired
+- Any email where it is unclear if the user actually applied
+
+Statuses: "applied" (confirmation of receipt), "interview" (screening/interview/test request), "offer" (job offer), "rejected" (explicit rejection from company).
+Do NOT use "rejected" for expired/removed job postings.
+Respond ONLY in JSON.'],
+                    ['role' => 'user', 'content' => "Subject: {$subject}\nBody: {$bodySnippet}\n\nRespond with JSON: { \"is_application_email\": true/false, \"details\": { \"company\": \"...\", \"title\": \"...\", \"status\": \"applied/interview/offer/rejected\" } }"]
                 ],
                 'response_format' => ['type' => 'json_object']
             ]);
 
-            Log::info('Gmail Sync: ' . $subject);
+            Log::info('Gmail Sync: Processing — ' . $subject);
 
             if ($response->successful()) {
                 $aiData = json_decode($response->json('choices.0.message.content'), true);
-                if (isset($aiData['is_job_update']) && $aiData['is_job_update']) {
-                    $details = $aiData['details'] ?? [];
-                    $company = $details['company'] ?? 'Unknown';
-                    $title = $details['title'] ?? 'Unknown';
 
-                    // Search for an existing job application to update
-                    // We prioritize matching by company name
-                    $existing = JobApplication::where('user_id', $user->id)
-                        ->where('company', 'LIKE', "%{$company}%")
-                        ->first();
+                if (empty($aiData['is_application_email'])) {
+                    Log::info("Gmail Sync: Skipped (not an application email) — {$subject}");
+                    return;
+                }
 
-                    if ($existing) {
-                        $newStatus = strtolower($details['status'] ?? '');
-                        
-                        // Map potential AI status variations to our DB values
-                        if (str_contains($newStatus, 'reject') || str_contains($newStatus, 'interest') || str_contains($newStatus, 'not proceed')) {
-                            $newStatus = 'rejected';
-                        }
+                $details = $aiData['details'] ?? [];
+                $company = trim($details['company'] ?? 'Unknown');
+                $title   = trim($details['title'] ?? 'Unknown');
+                $newStatus = strtolower($details['status'] ?? '');
 
-                        // If the status is one of our valid types, update it
-                        if (in_array($newStatus, ['applied', 'interview', 'offer', 'rejected'])) {
-                             if ($existing->status !== $newStatus) {
-                                 $existing->update(['status' => $newStatus]);
-                                 Log::info("Gmail Sync: AI detected status change for {$existing->company} to {$newStatus}");
-                             }
-                        }
+                // Normalise status
+                if (str_contains($newStatus, 'reject') || str_contains($newStatus, 'not proceed')) {
+                    $newStatus = 'rejected';
+                }
+                if (!in_array($newStatus, ['applied', 'interview', 'offer', 'rejected'])) {
+                    Log::info("Gmail Sync: Skipped (unrecognised status '{$newStatus}') — {$subject}");
+                    return;
+                }
+
+                // Try to find an existing application by company (and optionally title)
+                $existing = JobApplication::where('user_id', $user->id)
+                    ->where('company', 'LIKE', "%{$company}%")
+                    ->when($title !== 'Unknown', function ($q) use ($title) {
+                        $q->orWhere('title', 'LIKE', "%{$title}%");
+                    })
+                    ->first();
+
+                if ($existing) {
+                    // Only update if the new status is a progression
+                    $statusOrder = ['tracking' => 0, 'applied' => 1, 'interview' => 2, 'offer' => 3, 'rejected' => 3];
+                    $currentRank = $statusOrder[$existing->status] ?? 0;
+                    $newRank     = $statusOrder[$newStatus] ?? 0;
+
+                    if ($newRank >= $currentRank && $existing->status !== $newStatus) {
+                        $existing->update(['status' => $newStatus]);
+                        Log::info("Gmail Sync: Updated {$existing->company} — {$existing->title} → {$newStatus}");
                     } else {
-                        Log::info("Gmail Sync: Skipping. No existing application found for company identified by AI as: {$company}");
+                        Log::info("Gmail Sync: No update needed for {$existing->company} (current: {$existing->status}, detected: {$newStatus})");
                     }
+                } else {
+                    // No existing record — create a new one since the user clearly applied
+                    $job = JobApplication::create([
+                        'user_id'  => $user->id,
+                        'title'    => $title,
+                        'company'  => $company,
+                        'location' => 'Unknown',
+                        'type'     => 'Full-time',
+                        'status'   => $newStatus,
+                    ]);
+                    Log::info("Gmail Sync: Auto-created job for {$company} — {$title} with status {$newStatus}");
                 }
             }
         } catch (\Exception $e) {

@@ -110,6 +110,7 @@ class JobApplicationController extends Controller
             'salary' => 'string|nullable',
             'url' => 'nullable|url',
             'company_url' => 'string|nullable',
+            'description' => 'string|nullable',
             'status' => 'string|nullable|in:applied,tracking,interview,rejected,offer',
             'cv_match_score' => 'integer|nullable|min:0|max:100',
             'cv_match_details' => 'array|nullable',
@@ -126,6 +127,7 @@ class JobApplicationController extends Controller
             'salary' => $validated['salary'] ?? null,
             'job_url' => $validated['url'],
             'company_url' => $validated['company_url'] ?? null,
+            'description' => $validated['description'] ?? null,
             'status' => $validated['status'] ?? 'tracking',
             'cv_match_score' => $validated['cv_match_score'] ?? null,
             'cv_match_details' => $validated['cv_match_details'] ?? null,
@@ -155,6 +157,7 @@ class JobApplicationController extends Controller
             'salary' => 'string|nullable',
             'url' => 'url|nullable',
             'company_url' => 'string|nullable',
+            'description' => 'string|nullable',
             'status' => 'string|nullable|in:applied,tracking,interview,rejected,offer',
         ]);
 
@@ -167,6 +170,7 @@ class JobApplicationController extends Controller
             'salary' => array_key_exists('salary', $validated) ? $validated['salary'] : $job->salary,
             'job_url' => $validated['url'] ?? $job->job_url,
             'company_url' => $validated['company_url'] ?? $job->company_url,
+            'description' => array_key_exists('description', $validated) ? $validated['description'] : $job->description,
             'status' => $validated['status'] ?? $job->status,
         ]);
 
@@ -211,13 +215,7 @@ class JobApplicationController extends Controller
                 'model' => 'deepseek-chat',
                 'messages' => [
                     ['role' => 'system', 'content' => 'You are a professional job recruiter. Analyze the job details and extract extra information like summary, tech stack (as array), and any potential contact info or person mentioned. Respond ONLY in JSON format.'],
-                    ['role' => 'user', 'content' => "Perfect this job data: Company: {$job->company}, Title: {$job->title}, URL: {$job->job_url}. 
-                    Extract: 
-                    1. A 2-sentence summary of the company/role.
-                    2. A tech stack (array of tags).
-                    3. Contact info (emails/names) if you can deduce from the URL/Company.
-                    
-                    Respond with JSON object: { 'summary': '...', 'tech_stack': [...], 'contact_info': '...' }"]
+                    ['role' => 'user', 'content' => "Job data: Company: {$job->company}, Title: {$job->title}, URL: {$job->job_url}.\n\nJob Description:\n" . substr($job->description ?? '', 0, 2000) . "\n\nExtract:\n1. A 2-sentence summary of the company/role.\n2. A tech stack (array of tags).\n3. Contact info (emails/names) if you can deduce from the URL/Company.\n\nRespond with JSON object: { 'summary': '...', 'tech_stack': [...], 'contact_info': '...' }"]
                 ],
                 'response_format' => ['type' => 'json_object']
             ]);

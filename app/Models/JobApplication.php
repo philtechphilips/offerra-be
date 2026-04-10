@@ -12,9 +12,9 @@ class JobApplication extends Model
     protected $keyType = 'string';
     public $incrementing = false;
     protected $fillable = [
-        'user_id', 'title', 'company', 'location', 'type', 'is_remote', 
-        'salary', 'job_url', 'company_url', 'contact_info', 
-        'summary', 'tech_stack', 'status',
+        'user_id', 'title', 'company', 'location', 'type', 'is_remote',
+        'salary', 'job_url', 'company_url', 'description',
+        'contact_info', 'summary', 'tech_stack', 'status',
         'cv_match_score', 'cv_match_details'
     ];
 
