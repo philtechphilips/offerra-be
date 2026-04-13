@@ -117,7 +117,7 @@ class PlanController extends Controller
         if ($plan->price_ngn > 0) {
             try {
                 if ($plan->paystack_plan_id) {
-                    $response = Http::withToken(env('PAYSTACK_SECRET'))
+                    $response = Http::withToken(config('services.paystack.secret'))
                         ->put("https://api.paystack.co/plan/{$plan->paystack_plan_id}", [
                             'name' => $plan->name,
                             'amount' => (int)($plan->price_ngn * 100), // kobo
@@ -125,7 +125,7 @@ class PlanController extends Controller
                         ]);
                     Log::info("Paystack Update Response for {$plan->name}: " . $response->body());
                 } else {
-                    $response = Http::withToken(env('PAYSTACK_SECRET'))
+                    $response = Http::withToken(config('services.paystack.secret'))
                         ->post("https://api.paystack.co/plan", [
                             'name' => $plan->name,
                             'amount' => (int)($plan->price_ngn * 100),
@@ -147,7 +147,7 @@ class PlanController extends Controller
         // 2. Sync with Polar (USD)
         if ($plan->price_usd > 0) {
             try {
-                $polarUrl = env('POLAR_SERVER') === 'sandbox' ? "https://sandbox-api.polar.sh/v1/products" : "https://api.polar.sh/v1/products";
+                $polarUrl = config('services.polar.server') === 'sandbox' ? "https://sandbox-api.polar.sh/v1/products" : "https://api.polar.sh/v1/products";
                 
                 $payload = [
                     'name' => $plan->name,
@@ -164,7 +164,7 @@ class PlanController extends Controller
                         ]
                     ];
 
-                    $response = Http::withToken(env('POLAR_ACCESS_TOKEN'))
+                    $response = Http::withToken(config('services.polar.access_token'))
                         ->post($polarUrl, $payload);
 
                     Log::info("Polar Create Response for {$plan->name}: " . $response->body());
@@ -176,7 +176,7 @@ class PlanController extends Controller
                         Log::error("Polar Create Failed for {$plan->name}: " . $response->body());
                     }
                 } else {
-                    $response = Http::withToken(env('POLAR_ACCESS_TOKEN'))
+                    $response = Http::withToken(config('services.polar.access_token'))
                         ->patch("{$polarUrl}/{$plan->polar_product_id}", $payload);
                     
                     Log::info("Polar Update Response for {$plan->name}: " . $response->body());

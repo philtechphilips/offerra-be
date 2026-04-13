@@ -17,14 +17,14 @@ class VerifyEmailController extends Controller
         }
 
         if ($user->hasVerifiedEmail()) {
-            return redirect(env('FRONTEND_URL', 'http://localhost:3000') . '/dashboard');
+            return redirect(config('app.frontend_url', 'http://localhost:3000') . '/dashboard');
         }
 
         if ($user->markEmailAsVerified()) {
             event(new Verified($user));
         }
 
-        return redirect(env('FRONTEND_URL', 'http://localhost:3000') . '/dashboard');
+        return redirect(config('app.frontend_url', 'http://localhost:3000') . '/dashboard');
     }
 
     public function resend(Request $request)

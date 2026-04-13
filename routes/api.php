@@ -19,7 +19,7 @@ Route::post('/webhooks/polar', [PaymentController::class, 'handlePolarWebhook'])
 
 Route::get('/cron/run', function (Request $request) {
     $secret = $request->query('secret');
-    if ($secret !== env('CRON_SECRET')) {
+    if ($secret !== config('app.cron_secret')) {
         return response()->json(['message' => 'Unauthorized'], 401);
     }
 

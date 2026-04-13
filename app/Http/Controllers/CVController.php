@@ -141,7 +141,7 @@ class CVController extends Controller
             return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
         }
 
-        $apiKey = env('DEEPSEEK_API_KEY');
+        $apiKey = config('services.deepseek.api_key');
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -227,7 +227,7 @@ CRITICAL RULES:
             ], 402);
         }
 
-        $apiKey = env('DEEPSEEK_API_KEY');
+        $apiKey = config('services.deepseek.api_key');
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -293,7 +293,7 @@ CRITICAL RULES:
             ], 402);
         }
 
-        $apiKey = env('DEEPSEEK_API_KEY');
+        $apiKey = config('services.deepseek.api_key');
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -371,7 +371,7 @@ CRITICAL RULES:
             ], 402);
         }
 
-        $apiKey = env('DEEPSEEK_API_KEY');
+        $apiKey = config('services.deepseek.api_key');
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -513,7 +513,7 @@ CRITICAL RULES:
             ], 402);
         }
 
-        $apiKey = env('DEEPSEEK_API_KEY');
+        $apiKey = config('services.deepseek.api_key');
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -602,7 +602,7 @@ CRITICAL SUCCESS FACTORS:
             ], 402);
         }
 
-        $apiKey = env('DEEPSEEK_API_KEY');
+        $apiKey = config('services.deepseek.api_key');
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -693,7 +693,7 @@ For each question, provide:
             ], 402);
         }
 
-        $apiKey = env('DEEPSEEK_API_KEY');
+        $apiKey = config('services.deepseek.api_key');
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -835,7 +835,7 @@ CRITICAL GUIDELINES:
      */
     private function parseWithAI(string $rawText): ?array
     {
-        $apiKey = env('DEEPSEEK_API_KEY');
+        $apiKey = config('services.deepseek.api_key');
         if (!$apiKey) return null;
 
         // Truncate to reasonable length for the API

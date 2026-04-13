@@ -53,7 +53,7 @@ class PaymentController extends Controller
             $fields['plan'] = $plan->paystack_plan_id;
         }
 
-        $response = Http::withToken(env('PAYSTACK_SECRET'))
+        $response = Http::withToken(config('services.paystack.secret'))
             ->post($url, $fields);
 
         if ($response->successful()) {
@@ -66,7 +66,7 @@ class PaymentController extends Controller
     protected function initiatePolar($user, $plan)
     {
         // Polar API v1 Checkout Create
-        $url = env('POLAR_SERVER') === 'sandbox' 
+        $url = config('services.polar.server') === 'sandbox' 
             ? "https://sandbox-api.polar.sh/v1/checkouts" 
             : "https://api.polar.sh/v1/checkouts";
 
@@ -76,15 +76,15 @@ class PaymentController extends Controller
         $fields = [
             'product_id' => $plan->polar_product_id, // Ensure this is set in admin
             'customer_email' => $user->email,
-            'success_url' => env('POLAR_SUCCESS_URL'),
-            'cancel_url' => env('POLAR_CANCEL_URL'),
+            'success_url' => config('services.polar.success_url'),
+            'cancel_url' => config('services.polar.cancel_url'),
             'metadata' => [
                 'user_id' => (string)$user->id,
                 'plan_id' => (string)$plan->id,
             ],
         ];
 
-        $response = Http::withToken(env('POLAR_ACCESS_TOKEN'))
+        $response = Http::withToken(config('services.polar.access_token'))
             ->post($url, $fields);
 
         if ($response->successful()) {
@@ -99,7 +99,7 @@ class PaymentController extends Controller
     {
         // 1. Verify Signature
         $signature = $request->header('x-paystack-signature');
-        if (!$signature || $signature !== hash_hmac('sha512', $request->getContent(), env('PAYSTACK_SECRET'))) {
+        if (!$signature || $signature !== hash_hmac('sha512', $request->getContent(), config('services.paystack.secret'))) {
             return response()->json(['message' => 'Invalid signature'], 400);
         }
 

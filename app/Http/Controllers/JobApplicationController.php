@@ -23,7 +23,7 @@ class JobApplicationController extends Controller
             return response()->json(['error' => 'Not enough credits for AI detection.'], 402);
         }
 
-        $apiKey = env('DEEPSEEK_API_KEY');
+        $apiKey = config('services.deepseek.api_key');
         if (!$apiKey) {
             return response()->json(['error' => 'AI Key not configured'], 500);
         }
@@ -201,7 +201,7 @@ class JobApplicationController extends Controller
             return;
         }
 
-        $apiKey = env('DEEPSEEK_API_KEY');
+        $apiKey = config('services.deepseek.api_key');
         if (!$apiKey) {
             Log::warning('DEEPSEEK_API_KEY not found in .env');
             return;

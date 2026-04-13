@@ -41,4 +41,19 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URI', 'http://localhost:8005/api/auth/google/callback'),
     ],
 
+    'deepseek' => [
+        'api_key' => env('DEEPSEEK_API_KEY'),
+    ],
+
+    'paystack' => [
+        'secret' => env('PAYSTACK_SECRET'),
+    ],
+
+    'polar' => [
+        'server' => env('POLAR_SERVER'),
+        'access_token' => env('POLAR_ACCESS_TOKEN'),
+        'success_url' => env('POLAR_SUCCESS_URL'),
+        'cancel_url' => env('POLAR_CANCEL_URL'),
+    ],
+
 ];
