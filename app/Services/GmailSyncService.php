@@ -151,6 +151,7 @@ class GmailSyncService
     protected function detectJobFromEmail($user, $subject, $body, $messageId)
     {
         $apiKey = config('services.deepseek.api_key');
+        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
         if (!$apiKey) return;
 
         $bodySnippet = substr($body, 0, 4000);

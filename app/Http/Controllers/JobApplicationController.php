@@ -24,6 +24,7 @@ class JobApplicationController extends Controller
         }
 
         $apiKey = config('services.deepseek.api_key');
+        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
         if (!$apiKey) {
             return response()->json(['error' => 'AI Key not configured'], 500);
         }

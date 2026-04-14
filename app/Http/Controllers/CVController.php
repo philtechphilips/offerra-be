@@ -142,6 +142,7 @@ class CVController extends Controller
         }
 
         $apiKey = config('services.deepseek.api_key');
+        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -228,6 +229,7 @@ CRITICAL RULES:
         }
 
         $apiKey = config('services.deepseek.api_key');
+        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -294,6 +296,7 @@ CRITICAL RULES:
         }
 
         $apiKey = config('services.deepseek.api_key');
+        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -372,6 +375,7 @@ CRITICAL RULES:
         }
 
         $apiKey = config('services.deepseek.api_key');
+        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -514,6 +518,7 @@ CRITICAL RULES:
         }
 
         $apiKey = config('services.deepseek.api_key');
+        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -603,6 +608,7 @@ CRITICAL SUCCESS FACTORS:
         }
 
         $apiKey = config('services.deepseek.api_key');
+        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -694,6 +700,7 @@ For each question, provide:
         }
 
         $apiKey = config('services.deepseek.api_key');
+        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
