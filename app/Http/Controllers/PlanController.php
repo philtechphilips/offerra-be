@@ -85,6 +85,8 @@ class PlanController extends Controller
             'is_popular' => 'boolean',
             'is_active' => 'boolean',
             'btn_text' => 'nullable|string',
+            'polar_product_id' => 'nullable|string',
+            'paystack_plan_id' => 'nullable|string',
         ]);
 
         if (isset($validated['name'])) {
