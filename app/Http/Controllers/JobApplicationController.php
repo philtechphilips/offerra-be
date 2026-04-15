@@ -24,7 +24,7 @@ class JobApplicationController extends Controller
         }
 
         $apiKey = config('services.deepseek.api_key');
-        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
+
         if (!$apiKey) {
             return response()->json(['error' => 'AI Key not configured'], 500);
         }
@@ -39,11 +39,11 @@ class JobApplicationController extends Controller
             ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
                 'model' => 'deepseek-chat',
                 'messages' => [
-                    ['role' => 'system', 'content' => 'You are an AI that detects job-related content from web pages and emails. 
+                    ['role' => 'system', 'content' => 'You are an AI that detects job-related content from web pages and emails.
                     1. If the content is a Job Posting/Listing: Extract the role details and set is_job to true.
                     2. If the content is an Email (e.g. from Gmail): Detect if it is a job application confirmation, an interview invitation, or a rejection. Extract the Company and Title mentioned, and set is_job to true.
                     3. If it is unrelated: Set is_job to false.
-                    
+
                     CRITICAL: If the Company name is not explicitly mentioned in the body, try to deduce it from the URL (e.g. from glassdoor.com/job/google -> Google) or from the email sender/signature if available in the text.
                     Possible statuses for emails: applied, interview, rejected, offer.'],
                     ['role' => 'user', 'content' => "URL: {$validated['url']}\nContent: {$contentSnippet}\n\nRespond with JSON: { 'is_job': true/false, 'details': { 'title': '...', 'company': '...', 'location': '...', 'type': '...', 'is_remote': true/false, 'salary': '...', 'status': 'applied/interview/offer/rejected' } }"]

@@ -142,7 +142,7 @@ class CVController extends Controller
         }
 
         $apiKey = config('services.deepseek.api_key');
-        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
+
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -229,7 +229,7 @@ CRITICAL RULES:
         }
 
         $apiKey = config('services.deepseek.api_key');
-        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
+
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -296,7 +296,7 @@ CRITICAL RULES:
         }
 
         $apiKey = config('services.deepseek.api_key');
-        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
+
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -375,7 +375,7 @@ CRITICAL RULES:
         }
 
         $apiKey = config('services.deepseek.api_key');
-        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
+
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -518,7 +518,7 @@ CRITICAL RULES:
         }
 
         $apiKey = config('services.deepseek.api_key');
-        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
+
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -608,7 +608,7 @@ CRITICAL SUCCESS FACTORS:
         }
 
         $apiKey = config('services.deepseek.api_key');
-        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
+
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -700,7 +700,7 @@ For each question, provide:
         }
 
         $apiKey = config('services.deepseek.api_key');
-        \Illuminate\Support\Facades\Log::info('DeepSeek API Key check', ['key_status' => $apiKey ? 'Found (' . strlen($apiKey) . ' chars)' : 'NOT FOUND']);
+
         if (!$apiKey) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
@@ -723,7 +723,7 @@ CRITICAL GUIDELINES:
 1. PERSONALIZED: Reference specific requirements and keywords from the job description.
 2. STORYTELLING: Don't just list skills. Connect the candidate's achievements to how they will solve the company's specific problems.
 3. TONE: Professional, enthusiastic, and confident. Avoid cliches like \"I am writing to apply for...\".
-4. STRUCTURE: 
+4. STRUCTURE:
    - Powerful opening hook.
    - 2-3 body paragraphs showing evidence of impact.
    - Strong closing with a call to action.
