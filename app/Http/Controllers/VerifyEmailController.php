@@ -17,14 +17,14 @@ class VerifyEmailController extends Controller
         }
 
         if ($user->hasVerifiedEmail()) {
-            return redirect(config('app.frontend_url', 'http://localhost:3000') . '/dashboard');
+            return redirect(config('app.frontend_url', 'https://offerra.click') . '/dashboard');
         }
 
         if ($user->markEmailAsVerified()) {
             event(new Verified($user));
         }
 
-        return redirect(config('app.frontend_url', 'http://localhost:3000') . '/dashboard');
+        return redirect(config('app.frontend_url', 'https://offerra.click') . '/dashboard');
     }
 
     public function resend(Request $request)

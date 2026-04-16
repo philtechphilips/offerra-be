@@ -19,7 +19,7 @@ class AppServiceProvider extends ServiceProvider
         \Laravel\Sanctum\Sanctum::usePersonalAccessTokenModel(\App\Models\PersonalAccessToken::class);
 
         \Illuminate\Auth\Notifications\ResetPassword::createUrlUsing(function (\App\Models\User $user, string $token) {
-            return config('app.frontend_url', 'http://localhost:3000') . '/reset-password?token=' . $token . '&email=' . $user->email;
+            return config('app.frontend_url', 'https://offerra.click') . '/reset-password?token=' . $token . '&email=' . $user->email;
         });
     }
 }
