@@ -32,3 +32,4 @@ Artisan::command('emails:sync-recent', function (GmailSyncService $syncService) 
 
 Schedule::command('emails:sync-recent')->hourly();
 Schedule::command('app:send-marketing-emails')->daily();
+Schedule::command('jobs:send-followup-reminders')->dailyAt('00:00');

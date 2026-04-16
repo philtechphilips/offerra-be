@@ -34,7 +34,20 @@ class GenericNotification extends Notification
      */
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return ['database', 'mail'];
+    }
+
+    /**
+     * Get the mail representation of the notification.
+     */
+    public function toMail(object $notifiable): MailMessage
+    {
+        return (new MailMessage)
+            ->subject($this->title)
+            ->greeting('Hello!')
+            ->line($this->message)
+            ->action('View Applications', url(config('app.frontend_url') . $this->action_url))
+            ->line('Good luck with your application!');
     }
 
     /**

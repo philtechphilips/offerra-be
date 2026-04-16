@@ -115,6 +115,8 @@ class JobApplicationController extends Controller
             'status' => 'string|nullable|in:applied,tracking,interview,rejected,offer',
             'cv_match_score' => 'integer|nullable|min:0|max:100',
             'cv_match_details' => 'array|nullable',
+            'follow_up_date' => 'date|nullable',
+            'follow_up_note' => 'string|nullable',
         ]);
 
         // Create the initial record
@@ -132,6 +134,8 @@ class JobApplicationController extends Controller
             'status' => $validated['status'] ?? 'tracking',
             'cv_match_score' => $validated['cv_match_score'] ?? null,
             'cv_match_details' => $validated['cv_match_details'] ?? null,
+            'follow_up_date' => $validated['follow_up_date'] ?? null,
+            'follow_up_note' => $validated['follow_up_note'] ?? null,
         ]);
 
         // Trigger AI enrichment in background or sync for now to test
@@ -160,6 +164,8 @@ class JobApplicationController extends Controller
             'company_url' => 'string|nullable',
             'description' => 'string|nullable',
             'status' => 'string|nullable|in:applied,tracking,interview,rejected,offer',
+            'follow_up_date' => 'date|nullable',
+            'follow_up_note' => 'string|nullable',
         ]);
 
         $job->update([
@@ -173,6 +179,8 @@ class JobApplicationController extends Controller
             'company_url' => $validated['company_url'] ?? $job->company_url,
             'description' => array_key_exists('description', $validated) ? $validated['description'] : $job->description,
             'status' => $validated['status'] ?? $job->status,
+            'follow_up_date' => array_key_exists('follow_up_date', $validated) ? $validated['follow_up_date'] : $job->follow_up_date,
+            'follow_up_note' => array_key_exists('follow_up_note', $validated) ? $validated['follow_up_note'] : $job->follow_up_note,
         ]);
 
         return response()->json([

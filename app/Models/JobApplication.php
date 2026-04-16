@@ -15,7 +15,8 @@ class JobApplication extends Model
         'user_id', 'title', 'company', 'location', 'type', 'is_remote',
         'salary', 'job_url', 'company_url', 'description',
         'contact_info', 'summary', 'tech_stack', 'status',
-        'cv_match_score', 'cv_match_details'
+        'cv_match_score', 'cv_match_details',
+        'follow_up_date', 'follow_up_note'
     ];
 
     public function user()
@@ -27,5 +28,6 @@ class JobApplication extends Model
         'tech_stack' => 'array',
         'cv_match_details' => 'array',
         'is_remote' => 'boolean',
+        'follow_up_date' => 'date:Y-m-d',
     ];
 }
