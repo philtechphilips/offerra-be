@@ -69,7 +69,8 @@ class GoogleAuthController extends Controller
                 return redirect(config('app.frontend_url') . '/login?error=session_expired');
             }
 
-            $user->googleAccount()->updateOrCreate(
+            // Use the model directly to avoid relationship caching issues
+            \App\Models\GoogleAccount::updateOrCreate(
                 ['user_id' => $user->id],
                 [
                     'email' => $googleUser->email,
@@ -79,6 +80,7 @@ class GoogleAuthController extends Controller
                     'status' => 'connected',
                 ]
             );
+
 
             return redirect(config('app.frontend_url') . '/dashboard/profile?success=google_connected');
 
