@@ -113,17 +113,18 @@ class GoogleAuthController extends Controller
         if ($account) {
             try {
                 $client = new Client();
-                $client->setClientId(config('services.google.client_id'));
-                $client->setClientSecret(config('services.google.client_secret'));
+                // Revoke refresh token if we have it, as it's the master key that allows long-term access.
+                // Google's revocation endpoint accepts either access_token or refresh_token.
+                $tokenToRevoke = $account->refresh_token ?: $account->access_token;
                 
-                // Revoke access
-                if ($account->access_token) {
-                    $client->revokeToken($account->access_token);
+                if ($tokenToRevoke) {
+                    $client->revokeToken($tokenToRevoke);
                 }
             } catch (\Exception $e) {
                 Log::error('Google Token Revocation Failed: ' . $e->getMessage());
                 // We proceed with deletion anyway to clear local state
             }
+
 
             $account->delete();
         }
