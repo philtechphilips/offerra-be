@@ -13,6 +13,7 @@ use App\Http\Controllers\PlanController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\DocumentController;
 
 Route::post('/webhooks/paystack', [PaymentController::class, 'handlePaystackWebhook']);
 Route::post('/webhooks/polar', [PaymentController::class, 'handlePolarWebhook']);
@@ -98,6 +99,21 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
     Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
+
+    // DocSign / Document Management
+    Route::get('/documents', [DocumentController::class, 'index']);
+    Route::post('/documents/upload', [DocumentController::class, 'upload']);
+    Route::get('/documents/{id}/download', [DocumentController::class, 'download']);
+    Route::delete('/documents/{id}', [DocumentController::class, 'destroy']);
+    Route::post('/documents/{id}/save-signed', [DocumentController::class, 'saveSigned']);
+    Route::get('/documents/field-suggestions', [DocumentController::class, 'getFieldSuggestions']);
+    Route::post('/documents/clear-memory', [DocumentController::class, 'clearMemory']);
+    Route::post('/documents/intelligent-autofill', [DocumentController::class, 'intelligentAutofill']);
+
+    // Signatures
+    Route::get('/signatures', [DocumentController::class, 'getSignatures']);
+    Route::post('/signatures', [DocumentController::class, 'saveSignature']);
+    Route::delete('/signatures/{id}', [DocumentController::class, 'deleteSignature']);
 });
 
 
