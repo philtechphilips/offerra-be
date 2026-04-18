@@ -42,6 +42,13 @@ class User extends Authenticatable implements MustVerifyEmail
         'professional_headline',
         'ai_tone',
         'notifications_enabled',
+        'username',
+        'public_profile_enabled',
+        'location',
+        'linkedin_url',
+        'github_url',
+        'twitter_url',
+        'portfolio_url',
     ];
 
     public function plan()
@@ -132,6 +139,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'credits' => 'integer',
+            'public_profile_enabled' => 'boolean',
         ];
     }
 }

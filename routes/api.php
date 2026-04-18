@@ -14,6 +14,7 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\PublicProfileController;
 
 Route::post('/webhooks/paystack', [PaymentController::class, 'handlePaystackWebhook']);
 Route::post('/webhooks/polar', [PaymentController::class, 'handlePolarWebhook']);
@@ -88,6 +89,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Payments
     Route::post('/payments/initiate', [PaymentController::class, 'initiate'])->middleware('idempotent');
 
+    // Public Profile Settings
+    Route::put('/profile/settings', [PublicProfileController::class, 'updateSettings']);
+    Route::get('/profile/check-username', [PublicProfileController::class, 'checkUsername']);
+
     // User Profile Settings
     Route::put('/user/settings', [UserController::class, 'updateSettings']);
     Route::get('/user/transactions', [UserController::class, 'transactions']);
@@ -116,6 +121,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('/signatures/{id}', [DocumentController::class, 'deleteSignature']);
 });
 
+
+// Public Profiles (no auth)
+Route::get('/u/{username}', [PublicProfileController::class, 'show']);
 
 // Plan Public Access
 Route::get('/plans', [PlanController::class, 'index']);
