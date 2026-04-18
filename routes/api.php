@@ -91,6 +91,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Public Profile Settings
     Route::put('/profile/settings', [PublicProfileController::class, 'updateSettings']);
+    Route::post('/profile/deduce', [PublicProfileController::class, 'deduceFromCV']);
     Route::get('/profile/check-username', [PublicProfileController::class, 'checkUsername']);
 
     // User Profile Settings

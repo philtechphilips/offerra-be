@@ -49,6 +49,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'github_url',
         'twitter_url',
         'portfolio_url',
+        'profile_theme',
     ];
 
     public function plan()
