@@ -103,11 +103,21 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function hasCredits($amount): bool
     {
+        // In free mode (billing disabled), all credit checks should pass.
+        if (!Setting::getVal('billing_enabled', false)) {
+            return true;
+        }
+
         return ($this->credits ?? 0) >= $amount;
     }
 
     public function deductCredits($amount, $description = null): bool
     {
+        // In free mode (billing disabled), skip all credit deductions.
+        if (!Setting::getVal('billing_enabled', false)) {
+            return true;
+        }
+
         if (!$this->hasCredits($amount)) {
             return false;
         }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Plan;
+use App\Models\Setting;
 use App\Models\User;
 use App\Models\Transaction;
 use App\Mail\PaymentReceiptMail;
@@ -21,6 +22,14 @@ class PaymentController extends Controller
      */
     public function initiate(Request $request)
     {
+        $billingEnabled = Setting::getVal('billing_enabled', false);
+        if (!$billingEnabled) {
+            return response()->json([
+                'status' => 'disabled',
+                'message' => 'Offerra is fully free for now. Billing is temporarily disabled.',
+            ], 200);
+        }
+
         $request->validate([
             'plan_id' => 'required|exists:plans,id',
             'region' => 'required|in:global,nigeria',

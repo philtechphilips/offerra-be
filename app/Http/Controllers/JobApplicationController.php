@@ -6,11 +6,15 @@ use Illuminate\Http\Request;
 
 use App\Models\JobApplication;
 use App\Models\Setting;
-use Illuminate\Support\Facades\Http;
+use App\Services\Ai\AiChatService;
 use Illuminate\Support\Facades\Log;
 
 class JobApplicationController extends Controller
 {
+    public function __construct(private AiChatService $aiChatService)
+    {
+    }
+
     public function detect(Request $request)
     {
         $validated = $request->validate([
@@ -23,44 +27,39 @@ class JobApplicationController extends Controller
             return response()->json(['error' => 'Not enough credits for AI detection.'], 402);
         }
 
-        $apiKey = config('services.deepseek.api_key');
-
-        if (!$apiKey) {
-            return response()->json(['error' => 'AI Key not configured'], 500);
+        if (!$this->aiChatService->isConfigured()) {
+            Log::error('AI detect failed: No provider configured.');
+            return response()->json([
+                'message' => 'Something went wrong.',
+                'error_code' => 'SERVER_ERROR',
+            ], 500);
         }
 
         try {
             // Truncate content to avoid token limits but keep the important parts (top of page/body)
             $contentSnippet = substr($validated['html_content'], 0, 4000);
 
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    ['role' => 'system', 'content' => 'You are an AI that detects job-related content from web pages and emails.
+            $result = $this->aiChatService->chatJson([
+                ['role' => 'system', 'content' => 'You are an AI that detects job-related content from web pages and emails.
                     1. If the content is a Job Posting/Listing: Extract the role details and set is_job to true.
                     2. If the content is an Email (e.g. from Gmail): Detect if it is a job application confirmation, an interview invitation, or a rejection. Extract the Company and Title mentioned, and set is_job to true.
                     3. If it is unrelated: Set is_job to false.
 
                     CRITICAL: If the Company name is not explicitly mentioned in the body, try to deduce it from the URL (e.g. from glassdoor.com/job/google -> Google) or from the email sender/signature if available in the text.
                     Possible statuses for emails: applied, interview, rejected, offer.'],
-                    ['role' => 'user', 'content' => "URL: {$validated['url']}\nContent: {$contentSnippet}\n\nRespond with JSON: { 'is_job': true/false, 'details': { 'title': '...', 'company': '...', 'location': '...', 'type': '...', 'is_remote': true/false, 'salary': '...', 'status': 'applied/interview/offer/rejected' } }"]
-                ],
-                'response_format' => ['type' => 'json_object']
-            ]);
+                ['role' => 'user', 'content' => "URL: {$validated['url']}\nContent: {$contentSnippet}\n\nRespond with JSON: { 'is_job': true/false, 'details': { 'title': '...', 'company': '...', 'location': '...', 'type': '...', 'is_remote': true/false, 'salary': '...', 'status': 'applied/interview/offer/rejected' } }"]
+            ], 60);
 
-            if ($response->successful()) {
-                $user->deductCredits(1, "Job Discovery via AI: Attempting to detect job at " . ($validated['url'] ?? 'page'));
-                $aiData = json_decode($response->json('choices.0.message.content'), true);
-                return response()->json($aiData);
-            }
-
-            return response()->json(['error' => 'AI failed'], 500);
+            $user->deductCredits(1, "Job Discovery via AI: Attempting to detect job at " . ($validated['url'] ?? 'page'));
+            $aiData = json_decode($result['content'], true);
+            return response()->json($aiData);
 
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            Log::error('Job detection failed.', ['error' => $e->getMessage()]);
+            return response()->json([
+                'message' => 'Something went wrong.',
+                'error_code' => 'SERVER_ERROR',
+            ], 500);
         }
     }
 
@@ -210,37 +209,25 @@ class JobApplicationController extends Controller
             return;
         }
 
-        $apiKey = config('services.deepseek.api_key');
-        if (!$apiKey) {
-            Log::warning('DEEPSEEK_API_KEY not found in .env');
+        if (!$this->aiChatService->isConfigured()) {
+            Log::warning('No AI provider API key found in .env');
             return;
         }
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    ['role' => 'system', 'content' => 'You are a professional job recruiter. Analyze the job details and extract extra information like summary, tech stack (as array), and any potential contact info or person mentioned. Respond ONLY in JSON format.'],
-                    ['role' => 'user', 'content' => "Job data: Company: {$job->company}, Title: {$job->title}, URL: {$job->job_url}.\n\nJob Description:\n" . substr($job->description ?? '', 0, 2000) . "\n\nExtract:\n1. A 2-sentence summary of the company/role.\n2. A tech stack (array of tags).\n3. Contact info (emails/names) if you can deduce from the URL/Company.\n\nRespond with JSON object: { 'summary': '...', 'tech_stack': [...], 'contact_info': '...' }"]
-                ],
-                'response_format' => ['type' => 'json_object']
-            ]);
+            $result = $this->aiChatService->chatJson([
+                ['role' => 'system', 'content' => 'You are a professional job recruiter. Analyze the job details and extract extra information like summary, tech stack (as array), and any potential contact info or person mentioned. Respond ONLY in JSON format.'],
+                ['role' => 'user', 'content' => "Job data: Company: {$job->company}, Title: {$job->title}, URL: {$job->job_url}.\n\nJob Description:\n" . substr($job->description ?? '', 0, 2000) . "\n\nExtract:\n1. A 2-sentence summary of the company/role.\n2. A tech stack (array of tags).\n3. Contact info (emails/names) if you can deduce from the URL/Company.\n\nRespond with JSON object: { 'summary': '...', 'tech_stack': [...], 'contact_info': '...' }"]
+            ], 60);
 
-            if ($response->successful()) {
-                $user->deductCredits(1, "AI Enrichment for job: {$job->title} at {$job->company}");
-                $aiData = json_decode($response->json('choices.0.message.content'), true);
-                $job->update([
-                    'summary' => $aiData['summary'] ?? $job->summary,
-                    'tech_stack' => $aiData['tech_stack'] ?? $job->tech_stack,
-                    'contact_info' => $aiData['contact_info'] ?? $job->contact_info,
-                ]);
-                Log::info('AI enrichment completed for job #' . $job->id);
-            } else {
-                Log::error('DeepSeek AI Error: ' . $response->body());
-            }
+            $user->deductCredits(1, "AI Enrichment for job: {$job->title} at {$job->company}");
+            $aiData = json_decode($result['content'], true);
+            $job->update([
+                'summary' => $aiData['summary'] ?? $job->summary,
+                'tech_stack' => $aiData['tech_stack'] ?? $job->tech_stack,
+                'contact_info' => $aiData['contact_info'] ?? $job->contact_info,
+            ]);
+            Log::info('AI enrichment completed for job #' . $job->id, ['provider' => $result['provider']]);
 
         } catch (\Exception $e) {
             Log::error('AI enrichment failed: ' . $e->getMessage());

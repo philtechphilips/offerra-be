@@ -7,6 +7,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\VerifyEmailController;
 use App\Http\Controllers\CVController;
 use App\Http\Controllers\JobController;
+use App\Http\Controllers\GuestSignController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\PlanController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\PublicProfileController;
+use App\Http\Controllers\SettingsController;
 
 Route::post('/webhooks/paystack', [PaymentController::class, 'handlePaystackWebhook']);
 Route::post('/webhooks/polar', [PaymentController::class, 'handlePolarWebhook']);
@@ -33,9 +35,10 @@ Route::get('/cron/run', function (Request $request) {
             'output' => $output
         ]);
     } catch (\Exception $e) {
+        \Illuminate\Support\Facades\Log::error('Cron run failed', ['error' => $e->getMessage()]);
         return response()->json([
-            'message' => 'Failed to execute cron job',
-            'error' => $e->getMessage()
+            'message' => 'Something went wrong.',
+            'error_code' => 'SERVER_ERROR',
         ], 500);
     }
 });
@@ -48,6 +51,7 @@ Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('
 
 Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])->name('google.callback');
 Route::post('/contact', \App\Http\Controllers\ContactController::class);
+Route::get('/settings/billing-status', [SettingsController::class, 'billingStatus']);
 
 Route::get('/email/verify/{id}/{hash}', [VerifyEmailController::class, 'verify'])
     ->middleware(['signed'])
@@ -108,11 +112,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // DocSign / Document Management
     Route::get('/documents', [DocumentController::class, 'index']);
+    Route::get('/documents/field-suggestions', [DocumentController::class, 'getFieldSuggestions']);
     Route::post('/documents/upload', [DocumentController::class, 'upload']);
     Route::get('/documents/{id}/download', [DocumentController::class, 'download']);
+    Route::get('/documents/{id}', [DocumentController::class, 'show']);
     Route::delete('/documents/{id}', [DocumentController::class, 'destroy']);
+    Route::post('/documents/{id}/share-anonymous', [DocumentController::class, 'shareAnonymous']);
     Route::post('/documents/{id}/save-signed', [DocumentController::class, 'saveSigned']);
-    Route::get('/documents/field-suggestions', [DocumentController::class, 'getFieldSuggestions']);
     Route::post('/documents/clear-memory', [DocumentController::class, 'clearMemory']);
     Route::post('/documents/intelligent-autofill', [DocumentController::class, 'intelligentAutofill']);
 
@@ -120,6 +126,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/signatures', [DocumentController::class, 'getSignatures']);
     Route::post('/signatures', [DocumentController::class, 'saveSignature']);
     Route::delete('/signatures/{id}', [DocumentController::class, 'deleteSignature']);
+
 });
 
 
@@ -129,12 +136,18 @@ Route::get('/u/{username}', [PublicProfileController::class, 'show']);
 // Plan Public Access
 Route::get('/plans', [PlanController::class, 'index']);
 
+// Guest document signing (DocSign share links)
+Route::get('/sign/{token}', [GuestSignController::class, 'show']);
+Route::get('/sign/{token}/file', [GuestSignController::class, 'file'])->name('sign.file');
+Route::post('/sign/{token}', [GuestSignController::class, 'sign']);
+
 // Admin Dedicated Routes
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(function () {
     Route::get('/stats', [AdminController::class, 'stats']);
     Route::get('/users', [AdminController::class, 'users']);
     Route::put('/users/{id}/role', [AdminController::class, 'updateUserRole']);
     Route::post('/users/{id}/credits', [AdminController::class, 'updateCredits']);
+    Route::get('/users/{id}/activity', [AdminController::class, 'userActivity']);
     Route::delete('/users/{id}', [AdminController::class, 'deleteUser']);
 
     Route::get('/transactions', [AdminController::class, 'transactions']);
@@ -146,6 +159,6 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(functi
     Route::delete('/plans/{id}', [PlanController::class, 'destroy']);
 
     // System Settings management
-    Route::get('/settings', [\App\Http\Controllers\SettingsController::class, 'index']);
-    Route::put('/settings', [\App\Http\Controllers\SettingsController::class, 'update']);
+    Route::get('/settings', [SettingsController::class, 'index']);
+    Route::put('/settings', [SettingsController::class, 'update']);
 });

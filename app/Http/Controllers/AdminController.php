@@ -9,6 +9,8 @@ use App\Models\CreditLog;
 use App\Models\Plan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 
 class AdminController extends Controller
 {
@@ -135,7 +137,8 @@ class AdminController extends Controller
             $query->where('role', $request->get('role'));
         }
 
-        $users = $query->latest()->paginate(20);
+        $perPage = (int) $request->query('per_page', 20);
+        $users = $query->latest()->paginate($perPage);
 
         return response()->json($users);
     }
@@ -161,12 +164,115 @@ class AdminController extends Controller
         $user = User::findOrFail($id);
         
         // Prevent deleting yourself
-        if ($user->id === auth()->id()) {
+        if ($user->id === Auth::id()) {
             return response()->json(['error' => 'You cannot delete yourself'], 403);
         }
 
         $user->delete();
 
         return response()->json(['message' => 'User deleted successfully']);
+    }
+
+    public function userActivity($id)
+    {
+        $user = User::findOrFail($id);
+
+        $jobs = $user->jobApplications()
+            ->latest()
+            ->limit(10)
+            ->get(['id', 'title', 'company', 'status', 'created_at'])
+            ->map(function ($job) {
+                return [
+                    'type' => 'job',
+                    'title' => "Job {$job->status}",
+                    'description' => "{$job->title} at {$job->company}",
+                    'created_at' => $job->created_at,
+                    'meta' => [
+                        'status' => $job->status,
+                    ],
+                ];
+            });
+
+        $credits = $user->creditLogs()
+            ->latest()
+            ->limit(10)
+            ->get(['id', 'amount', 'type', 'description', 'created_at'])
+            ->map(function ($log) {
+                return [
+                    'type' => 'credit',
+                    'title' => "Credit {$log->type}",
+                    'description' => $log->description ?: "Credit change: {$log->amount}",
+                    'created_at' => $log->created_at,
+                    'meta' => [
+                        'amount' => $log->amount,
+                    ],
+                ];
+            });
+
+        $transactions = $user->transactions()
+            ->with('plan:id,name')
+            ->latest()
+            ->limit(10)
+            ->get(['id', 'plan_id', 'amount', 'currency', 'provider', 'status', 'created_at'])
+            ->map(function ($tx) {
+                return [
+                    'type' => 'payment',
+                    'title' => "Payment {$tx->status}",
+                    'description' => ($tx->plan?->name ?: 'Plan purchase') . " via {$tx->provider}",
+                    'created_at' => $tx->created_at,
+                    'meta' => [
+                        'amount' => $tx->amount,
+                        'currency' => $tx->currency,
+                    ],
+                ];
+            });
+
+        $notifications = DB::table('notifications')
+            ->where('notifiable_type', User::class)
+            ->where('notifiable_id', $user->id)
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get(['id', 'data', 'read_at', 'created_at'])
+            ->map(function ($n) {
+                $data = json_decode($n->data ?? '{}', true);
+                return [
+                    'type' => 'notification',
+                    'title' => $data['title'] ?? 'Notification',
+                    'description' => $data['message'] ?? 'User notification triggered',
+                    'created_at' => $n->created_at,
+                    'meta' => [
+                        'read' => !empty($n->read_at),
+                    ],
+                ];
+            });
+
+        $timeline = collect()
+            ->concat($jobs)
+            ->concat($credits)
+            ->concat($transactions)
+            ->concat($notifications)
+            ->sortByDesc(function ($item) {
+                return Carbon::parse($item['created_at'])->timestamp;
+            })
+            ->take(30)
+            ->values();
+
+        return response()->json([
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+            ],
+            'summary' => [
+                'jobs_count' => $user->jobApplications()->count(),
+                'credit_logs_count' => $user->creditLogs()->count(),
+                'transactions_count' => $user->transactions()->count(),
+                'notifications_count' => DB::table('notifications')
+                    ->where('notifiable_type', User::class)
+                    ->where('notifiable_id', $user->id)
+                    ->count(),
+            ],
+            'timeline' => $timeline,
+        ]);
     }
 }

@@ -3,13 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\Ai\AiChatService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\Rule;
 
 class PublicProfileController extends Controller
 {
+    public function __construct(private AiChatService $aiChatService)
+    {
+    }
+
     /**
      * Public endpoint — no auth required.
      * Returns everything needed to render the public profile page.
@@ -110,8 +114,7 @@ class PublicProfileController extends Controller
             return response()->json(['error' => 'No CV found. Please upload a resume first.'], 422);
         }
 
-        $apiKey = config('services.deepseek.api_key');
-        if (!$apiKey) {
+        if (!$this->aiChatService->isConfigured()) {
             // Fallback to basic mapping if AI is not configured
             $data = $activeCV->parsed_data ?? [];
             return response()->json([
@@ -134,15 +137,10 @@ class PublicProfileController extends Controller
         $sourceContext = "STRUCTURED DATA:\n{$parsedData}\n\nRAW CV TEXT:\n{$rawText}";
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => "You are a world-class career profile data extractor. Your goal is to find specific profile links and info from the provided CV data (both structured and raw).
+            $result = $this->aiChatService->chatJson([
+                [
+                    'role' => 'system',
+                    'content' => "You are a world-class career profile data extractor. Your goal is to find specific profile links and info from the provided CV data (both structured and raw).
                         
                         CRITICAL CHALLENGE: 
                         Sometimes links like GitHub, Portfolio, or Personal Websites are hidden in the text as plain strings or shorthand (e.g., 'github.com/username' or 'portfolio.io'). You MUST find these and return them as full URLs.
@@ -156,25 +154,19 @@ class PublicProfileController extends Controller
                         - professional_headline: A 1-sentence punchy professional headline (create one if missing).
                         
                         Return ONLY a valid JSON object. If a data point is absolutely not present, return null for that key."
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => "Context for deduction:\n\n{$sourceContext}"
-                    ]
                 ],
-                'response_format' => ['type' => 'json_object'],
+                [
+                    'role' => 'user',
+                    'content' => "Context for deduction:\n\n{$sourceContext}"
+                ]
+            ], 60);
+
+            $deduced = json_decode($result['content'], true);
+
+            return response()->json([
+                'message' => 'Profile data deduced with AI.',
+                'deduced' => $deduced
             ]);
-
-            if ($response->successful()) {
-                $deduced = json_decode($response->json('choices.0.message.content'), true);
-                
-                return response()->json([
-                    'message' => 'Profile data deduced with AI.',
-                    'deduced' => $deduced
-                ]);
-            }
-
-            throw new \Exception('AI Request failed');
 
         } catch (\Exception $e) {
             Log::error('AI Deduction error: ' . $e->getMessage());

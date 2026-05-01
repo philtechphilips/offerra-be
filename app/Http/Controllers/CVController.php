@@ -4,14 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Models\UserProfile;
 use App\Models\Setting;
+use App\Services\Ai\AiChatService;
 use App\Notifications\GenericNotification;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class CVController extends Controller
 {
+    public function __construct(private AiChatService $aiChatService)
+    {
+    }
+
     /**
      * Upload & parse a CV file (PDF, TXT, DOCX).
      * Extracts raw text, then sends to AI for structured parsing.
@@ -141,9 +145,7 @@ class CVController extends Controller
             return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
         }
 
-        $apiKey = config('services.deepseek.api_key');
-
-        if (!$apiKey) {
+        if (!$this->aiChatService->isConfigured()) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
 
@@ -153,15 +155,10 @@ class CVController extends Controller
         $jobContext = $request->job_context ?? 'Not specified';
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => "You are ghostwriting job application form answers for a real person. You must write EXACTLY as if you ARE that person — first person, natural, human tone.
+            $result = $this->aiChatService->chatJson([
+                [
+                    'role' => 'system',
+                    'content' => "You are ghostwriting job application form answers for a real person. You must write EXACTLY as if you ARE that person — first person, natural, human tone.
 
 CRITICAL RULES:
 1. NEVER mention \"CV\", \"resume\", \"based on my data\", \"according to my profile\", or anything that reveals AI involvement. You are the person.
@@ -173,25 +170,18 @@ CRITICAL RULES:
 7. For salary expectations: Give a reasonable range based on their experience level and the role.
 8. For \"How did you hear about us?\" type questions: Say \"Online job board\" or pick the most generic option.
 9. Keep answers concise for short text fields (1-2 sentences max). Write more for textareas (3-5 sentences)."
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => "Here is the person's profile:\n\n{$cvData}\n\nAdditional context from their resume:\n{$rawCvText}\n\nThey are applying for this job: {$jobContext}\n\nFill these form fields as if you are this person:\n\n{$fieldsData}\n\nRespond ONLY with a JSON object where each key is the field 'id' and the value is what to fill. For select fields with options, the value MUST be one of the provided options exactly."
-                    ]
                 ],
-                'response_format' => ['type' => 'json_object'],
+                [
+                    'role' => 'user',
+                    'content' => "Here is the person's profile:\n\n{$cvData}\n\nAdditional context from their resume:\n{$rawCvText}\n\nThey are applying for this job: {$jobContext}\n\nFill these form fields as if you are this person:\n\n{$fieldsData}\n\nRespond ONLY with a JSON object where each key is the field 'id' and the value is what to fill. For select fields with options, the value MUST be one of the provided options exactly."
+                ]
+            ], 60);
+
+            $filled = json_decode($result['content'], true);
+            return response()->json([
+                'success' => true,
+                'filled_fields' => $filled,
             ]);
-
-            if ($response->successful()) {
-                $filled = json_decode($response->json('choices.0.message.content'), true);
-                return response()->json([
-                    'success' => true,
-                    'filled_fields' => $filled,
-                ]);
-            }
-
-            Log::error('DeepSeek autofill error: ' . $response->body());
-            return response()->json(['error' => 'AI autofill failed.'], 500);
 
         } catch (\Exception $e) {
             Log::error('Autofill exception: ' . $e->getMessage());
@@ -228,9 +218,7 @@ CRITICAL RULES:
             ], 402);
         }
 
-        $apiKey = config('services.deepseek.api_key');
-
-        if (!$apiKey) {
+        if (!$this->aiChatService->isConfigured()) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
 
@@ -239,31 +227,20 @@ CRITICAL RULES:
         $jobContext = $request->job_context;
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => 'You are a recruitment expert. Analyze how well a candidate\'s CV matches a job posting. Be realistic but fair. Consider transferable skills.'
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => "Candidate CV data:\n{$cvData}\n\nJob: {$jobTitle}\nJob details:\n{$jobContext}\n\nAnalyze the match and respond with JSON:\n{\n  \"match_percentage\": 75,\n  \"strengths\": [\"Strong backend experience\", \"Relevant tech stack\"],\n  \"gaps\": [\"No cloud deployment experience\", \"Missing leadership experience\"],\n  \"tip\": \"One short actionable tip to improve chances\"\n}"
-                    ]
+            $aiResult = $this->aiChatService->chatJson([
+                [
+                    'role' => 'system',
+                    'content' => 'You are a recruitment expert. Analyze how well a candidate\'s CV matches a job posting. Be realistic but fair. Consider transferable skills.'
                 ],
-                'response_format' => ['type' => 'json_object'],
-            ]);
+                [
+                    'role' => 'user',
+                    'content' => "Candidate CV data:\n{$cvData}\n\nJob: {$jobTitle}\nJob details:\n{$jobContext}\n\nAnalyze the match and respond with JSON:\n{\n  \"match_percentage\": 75,\n  \"strengths\": [\"Strong backend experience\", \"Relevant tech stack\"],\n  \"gaps\": [\"No cloud deployment experience\", \"Missing leadership experience\"],\n  \"tip\": \"One short actionable tip to improve chances\"\n}"
+                ]
+            ], 60);
 
-            if ($response->successful()) {
-                $user->deductCredits($cost, "Match Analysis: {$jobTitle} at {$request->company}");
-                $result = json_decode($response->json('choices.0.message.content'), true);
-                return response()->json($result);
-            }
-
-            return response()->json(['error' => 'Analysis failed.'], 500);
+            $user->deductCredits($cost, "Match Analysis: {$jobTitle} at {$request->company}");
+            $result = json_decode($aiResult['content'], true);
+            return response()->json($result);
 
         } catch (\Exception $e) {
             Log::error('Match score exception: ' . $e->getMessage());
@@ -295,40 +272,27 @@ CRITICAL RULES:
             ], 402);
         }
 
-        $apiKey = config('services.deepseek.api_key');
-
-        if (!$apiKey) {
+        if (!$this->aiChatService->isConfigured()) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
 
         $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => 'You are an expert career coach, SEO specialist, and personal branding expert. Generate highly optimized profiles/bios based on the user\'s CV.'
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => "Candidate CV data:\n{$cvData}\n\nBased on this CV, generate SEO-friendly and highly engaging profile bios for the following platforms: LinkedIn (Headline + About section), X (Twitter) (Short punchy bio), Upwork (Headline + Description), and GitHub (Short bio). Respond strictly in JSON format matching this structure:\n{\n  \"linkedin\": {\n    \"headline\": \"...\",\n    \"about\": \"...\"\n  },\n  \"twitter\": \"...\",\n  \"upwork\": {\n    \"headline\": \"...\",\n    \"description\": \"...\"\n  },\n  \"github\": \"...\"\n}"
-                    ]
+            $aiResult = $this->aiChatService->chatJson([
+                [
+                    'role' => 'system',
+                    'content' => 'You are an expert career coach, SEO specialist, and personal branding expert. Generate highly optimized profiles/bios based on the user\'s CV.'
                 ],
-                'response_format' => ['type' => 'json_object'],
-            ]);
+                [
+                    'role' => 'user',
+                    'content' => "Candidate CV data:\n{$cvData}\n\nBased on this CV, generate SEO-friendly and highly engaging profile bios for the following platforms: LinkedIn (Headline + About section), X (Twitter) (Short punchy bio), Upwork (Headline + Description), and GitHub (Short bio). Respond strictly in JSON format matching this structure:\n{\n  \"linkedin\": {\n    \"headline\": \"...\",\n    \"about\": \"...\"\n  },\n  \"twitter\": \"...\",\n  \"upwork\": {\n    \"headline\": \"...\",\n    \"description\": \"...\"\n  },\n  \"github\": \"...\"\n}"
+                ]
+            ], 60);
 
-            if ($response->successful()) {
-                $user->deductCredits($cost, "Social Bio Generation for Profile");
-                $result = json_decode($response->json('choices.0.message.content'), true);
-                return response()->json($result);
-            }
-
-            return response()->json(['error' => 'Bio generation failed.'], 500);
+            $user->deductCredits($cost, "Social Bio Generation for Profile");
+            $result = json_decode($aiResult['content'], true);
+            return response()->json($result);
 
         } catch (\Exception $e) {
             Log::error('Bio generation exception: ' . $e->getMessage());
@@ -374,9 +338,7 @@ CRITICAL RULES:
             ], 402);
         }
 
-        $apiKey = config('services.deepseek.api_key');
-
-        if (!$apiKey) {
+        if (!$this->aiChatService->isConfigured()) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
 
@@ -384,31 +346,20 @@ CRITICAL RULES:
         $jobDescription = $request->job_description;
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(90)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => 'You are an expert career coach and professional resume writer. Your goal is to help candidates refactor their resume to perfectly match a specific job description. Provide actionable, high-impact suggestions.'
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => "Current CV data:\n{$cvData}\n\nPlease perform a deep analysis and provide a refactored version of the ENTIRE resume to match this Target Job Description:\n{$jobDescription}\n\nCRITICAL INSTRUCTIONS:\n1. PRESERVE ALL LINKS: If there are GitHub, Portfolio, LinkedIn, or Project-specific URLs in the original CV, they MUST be included in the refactored version exactly as they are.\n2. BULLET POINTS FOR PROJECTS: For any 'Projects' section (or similar), format each project as a list where each detail is an explicit line starting with a bullet point (•).\n3. DYNAMIC DISCOVERY: Identify and optimize all important sections from the source (Education, Certifications, Awards, etc.).\n\nRespond strictly in JSON format:\n{\n  \"optimized_summary\": \"Tailored 3-4 sentence professional summary.\",\n  \"key_skills_to_highlight\": [\"Skill 1\", \"Skill 2\", \"etc...\"],\n  \"experience_optimization\": [\n    {\n      \"company\": \"...\",\n      \"original_title\": \"...\",\n      \"tailored_bullets\": [\"Bullet rewritten for impact with keywords\"]\n    }\n  ],\n  \"additional_sections\": [\n    { \"title\": \"Education\", \"content\": \"Condensed education info...\" },\n    { \"title\": \"Projects\", \"content\": \"• Developed [X] using [Y] (link: [URL])\\n• Achieved [Result]...\" },\n    { \"title\": \"Certifications\", \"content\": \"• [Cert Name] - [Issuer]\" }\n  ],\n  \"strategic_advice\": \"One short paragraph of coaching advice for this role.\"\n}"
-                    ]
+            $aiResult = $this->aiChatService->chatJson([
+                [
+                    'role' => 'system',
+                    'content' => 'You are an expert career coach and professional resume writer. Your goal is to help candidates refactor their resume to perfectly match a specific job description. Provide actionable, high-impact suggestions.'
                 ],
-                'response_format' => ['type' => 'json_object'],
-            ]);
+                [
+                    'role' => 'user',
+                    'content' => "Current CV data:\n{$cvData}\n\nPlease perform a deep analysis and provide a refactored version of the ENTIRE resume to match this Target Job Description:\n{$jobDescription}\n\nCRITICAL INSTRUCTIONS:\n1. PRESERVE ALL LINKS: If there are GitHub, Portfolio, LinkedIn, or Project-specific URLs in the original CV, they MUST be included in the refactored version exactly as they are.\n2. BULLET POINTS FOR PROJECTS: For any 'Projects' section (or similar), format each project as a list where each detail is an explicit line starting with a bullet point (•).\n3. DYNAMIC DISCOVERY: Identify and optimize all important sections from the source (Education, Certifications, Awards, etc.).\n\nRespond strictly in JSON format:\n{\n  \"optimized_summary\": \"Tailored 3-4 sentence professional summary.\",\n  \"key_skills_to_highlight\": [\"Skill 1\", \"Skill 2\", \"etc...\"],\n  \"experience_optimization\": [\n    {\n      \"company\": \"...\",\n      \"original_title\": \"...\",\n      \"tailored_bullets\": [\"Bullet rewritten for impact with keywords\"]\n    }\n  ],\n  \"additional_sections\": [\n    { \"title\": \"Education\", \"content\": \"Condensed education info...\" },\n    { \"title\": \"Projects\", \"content\": \"• Developed [X] using [Y] (link: [URL])\\n• Achieved [Result]...\" },\n    { \"title\": \"Certifications\", \"content\": \"• [Cert Name] - [Issuer]\" }\n  ],\n  \"strategic_advice\": \"One short paragraph of coaching advice for this role.\"\n}"
+                ]
+            ], 90);
 
-            if ($response->successful()) {
-                $user->deductCredits($cost, "Resume Architect: Optimized for Job Description");
-                $result = json_decode($response->json('choices.0.message.content'), true);
-                return response()->json($result);
-            }
-
-            return response()->json(['error' => 'Refactoring failed.'], 500);
+            $user->deductCredits($cost, "Resume Architect: Optimized for Job Description");
+            $result = json_decode($aiResult['content'], true);
+            return response()->json($result);
 
         } catch (\Exception $e) {
             Log::error('Resume refactor exception: ' . $e->getMessage());
@@ -517,9 +468,7 @@ CRITICAL RULES:
             ], 402);
         }
 
-        $apiKey = config('services.deepseek.api_key');
-
-        if (!$apiKey) {
+        if (!$this->aiChatService->isConfigured()) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
 
@@ -527,15 +476,10 @@ CRITICAL RULES:
         $jobDescription = $request->job_description;
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(90)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => "You are a world-class freelance consultant and sales expert. Your goal is to write a high-converting, irresistible job proposal (specifically for platforms like Upwork) that guarantees an interview.
+            $aiResult = $this->aiChatService->chatJson([
+                [
+                    'role' => 'system',
+                    'content' => "You are a world-class freelance consultant and sales expert. Your goal is to write a high-converting, irresistible job proposal (specifically for platforms like Upwork) that guarantees an interview.
 
 CRITICAL SUCCESS FACTORS:
 1. THE HOOK: Start with a powerful 1-line hook that immediately addresses the client's problem or needs. DO NOT start with \"Hi, I am...\" or \"I saw your job...\" - start with value.
@@ -545,22 +489,16 @@ CRITICAL SUCCESS FACTORS:
 5. CALL TO ACTION: End with a low-friction invitation to chat or hop on a call.
 6. TONE: Professional but approachable. Bold, confident, and punchy. No generic fluff.
 7. FIRST PERSON: Write in the first person as if you ARE the candidate."
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => "My Profile Information:\n{$cvData}\n\nTarget Job Description:\n{$jobDescription}\n\nPlease write a high-converting proposal for this job. Structure it with:\n- A Killer Hook\n- The Solution/Value Proposition\n- Relevant Proof (Showcase the best matching projects and include their URLs found in my data)\n- Call to Action\n\nReturn the response in JSON format:\n{\n  \"proposal\": \"The full text of the proposal...\",\n  \"strategy_used\": \"Explain why this hook and approach were chosen for this specific job.\"\n}"
-                    ]
                 ],
-                'response_format' => ['type' => 'json_object'],
-            ]);
+                [
+                    'role' => 'user',
+                    'content' => "My Profile Information:\n{$cvData}\n\nTarget Job Description:\n{$jobDescription}\n\nPlease write a high-converting proposal for this job. Structure it with:\n- A Killer Hook\n- The Solution/Value Proposition\n- Relevant Proof (Showcase the best matching projects and include their URLs found in my data)\n- Call to Action\n\nReturn the response in JSON format:\n{\n  \"proposal\": \"The full text of the proposal...\",\n  \"strategy_used\": \"Explain why this hook and approach were chosen for this specific job.\"\n}"
+                ]
+            ], 90);
 
-            if ($response->successful()) {
-                $user->deductCredits($cost, "High-Impact Proposal Generation");
-                $result = json_decode($response->json('choices.0.message.content'), true);
-                return response()->json($result);
-            }
-
-            return response()->json(['error' => 'Proposal generation failed.'], 500);
+            $user->deductCredits($cost, "High-Impact Proposal Generation");
+            $result = json_decode($aiResult['content'], true);
+            return response()->json($result);
 
         } catch (\Exception $e) {
             Log::error('Proposal generation exception: ' . $e->getMessage());
@@ -575,7 +513,7 @@ CRITICAL SUCCESS FACTORS:
     public function generateInterviewPrep(Request $request)
     {
         $request->validate([
-            'job_description' => 'required|string',
+            'job_description' => 'required|string|min:20|max:20000',
             'cv_id' => 'nullable|string',
         ]);
 
@@ -607,9 +545,7 @@ CRITICAL SUCCESS FACTORS:
             ], 402);
         }
 
-        $apiKey = config('services.deepseek.api_key');
-
-        if (!$apiKey) {
+        if (!$this->aiChatService->isConfigured()) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
 
@@ -617,43 +553,88 @@ CRITICAL SUCCESS FACTORS:
         $jobDescription = $request->job_description;
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(90)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => "You are an elite interview coach. Your goal is to prepare a candidate for a high-stakes interview by generating the most likely questions and providing high-impact, STAR-method answers tailored to their real background.
+            $aiResult = $this->aiChatService->chatJson([
+                [
+                    'role' => 'system',
+                    'content' => "You are a senior hiring manager and bar-raiser who runs tough, realistic interviews. Your job is NOT to be gentle — it is to surface the hardest credible questions a strong interviewer would ask so the candidate rehearses under pressure.
 
-STRUCTURE OF RESPONSE:
-1. BEHAVIORAL QUESTIONS: Focus on 'Tell me about a time...' type questions.
-2. TECHNICAL/ROLE-SPECIFIC: Deep dive into the skills mentioned in the JD.
-3. CULTURE FIT: Questions about values and collaboration.
-4. THE 'WHY US': Craft a compelling reason why the candidate wants this specific company.
+PRIORITY: QUESTIONS THAT PUT THEM ON THEIR TOES
+- Stress-test claims on the CV (metrics, ownership, timelines, tech depth). Ask \"how exactly\", \"what would you do differently\", \"prove it with numbers\".
+- Hypotheticals and trade-offs: scarce time, conflicting priorities, ambiguous requirements, production incidents, stakeholder pushback.
+- Adversarial but fair: \"I'm not convinced...\", \"What's the weakest part of your background for this role?\", \"Why shouldn't we hire you?\"
+- Gaps and pivots: career changes, short tenures, employment gaps, junior vs senior scope — without being illegal (no age/family/health).
+- Role-specific deep dives from the job description: stack, architecture, delivery, leadership, business impact.
+- Curveballs: on-the-spot prioritization, estimating, whiteboard-style reasoning in words, \"what if\" scenarios.
+- Mix behavioral STAR probes with sharp follow-up style questions (single question can imply pressure; you cannot ask follow-ups in JSON, so make each question self-contained and piercing).
 
-For each question, provide:
-- 'question': The interview question.
-- 'category': e.g., 'Behavioral', 'Technical', 'Leadership'.
-- 'suggested_answer': A detailed answer using the STAR method (Situation, Task, Action, Result) based on the provided CV.
-- 'why_this_works': A short coach's note on what this answer demonstrates."
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => "Candidate CV Data:\n{$cvData}\n\nJob description:\n{$jobDescription}\n\nGenerate 8 high-impact interview questions with suggested answers. Return strictly in JSON format:\n{\n  \"prep_guide\": [\n    {\n      \"category\": \"...\",\n      \"question\": \"...\",\n      \"suggested_answer\": \"...\",\n      \"why_this_works\": \"...\"\n    }\n  ],\n  \"general_tips\": [\"Tip 1\", \"Tip 2\"]\n}"
-                    ]
+CATEGORIES: Use specific labels so the candidate sees the angle, e.g. \"Pressure test\", \"Resume stress-test\", \"Trade-off / judgment\", \"Failure & conflict\", \"Technical depth\", \"Executive / bar-raiser\", \"Culture & values\", \"Why us / motivation\", \"Curveball\".
+
+Each item must include:
+- 'question': One sharp, specific question (no fluff, no \"tell me about yourself\" unless as a stress variant).
+- 'category': Short label from the style above.
+- 'suggested_answer': STAR-grounded answer in first person, honest if the CV is thin — do not invent employers or degrees.
+- 'why_this_works': One sentence: what signal this answer sends under pressure.
+
+Return ONLY valid JSON. No markdown fences, no text outside JSON."
                 ],
-                'response_format' => ['type' => 'json_object'],
-            ]);
+                [
+                    'role' => 'user',
+                    'content' => "Candidate CV Data:\n{$cvData}\n\nJob description:\n{$jobDescription}\n\nGenerate between 16 and 20 interview questions (inclusive). Every question should feel like it could make a prepared candidate sweat — challenging, specific, and grounded in THIS CV and THIS job. Include a wide spread across categories (pressure, technical depth, resume stress-test, trade-offs, failure/conflict, curveballs, bar-raiser style).\n\nReturn strictly in JSON format:\n{\n  \"prep_guide\": [\n    {\n      \"category\": \"...\",\n      \"question\": \"...\",\n      \"suggested_answer\": \"...\",\n      \"why_this_works\": \"...\"\n    }\n  ],\n  \"general_tips\": [\"Tip 1\", \"Tip 2\", \"Tip 3\", \"Tip 4\", \"Tip 5\", \"Tip 6\"]\n}\n\ngeneral_tips: 6 to 8 short bullets on how to stay composed under aggressive questioning (breathing, structuring answers, buying time, clarifying, etc.)."
+                ]
+            ], 120);
 
-            if ($response->successful()) {
-                $user->deductCredits($cost, "Interview Prep Guide: Analysis & STAR Method Answers");
-                $result = json_decode($response->json('choices.0.message.content'), true);
-                return response()->json($result);
+            $decoded = json_decode($aiResult['content'], true);
+            if (! is_array($decoded)) {
+                Log::error('Interview prep: AI returned non-JSON', [
+                    'snippet' => substr((string) $aiResult['content'], 0, 400),
+                ]);
+
+                return response()->json(['error' => 'The AI returned an unreadable response. Please try again.'], 502);
             }
 
-            return response()->json(['error' => 'Interview prep generation failed.'], 500);
+            $prepGuide = [];
+            foreach ($decoded['prep_guide'] ?? [] as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $question = trim((string) ($item['question'] ?? ''));
+                if ($question === '') {
+                    continue;
+                }
+                $prepGuide[] = [
+                    'category' => trim((string) ($item['category'] ?? 'General')) ?: 'General',
+                    'question' => $question,
+                    'suggested_answer' => trim((string) ($item['suggested_answer'] ?? '')),
+                    'why_this_works' => trim((string) ($item['why_this_works'] ?? '')),
+                ];
+            }
+
+            if (count($prepGuide) < 12) {
+                Log::warning('Interview prep: too few questions after validation', ['count' => count($prepGuide)]);
+
+                return response()->json([
+                    'error' => 'Could not build a full pressure-test playbook (need at least 12 questions). Add more JD detail and try again.',
+                ], 422);
+            }
+
+            $generalTips = [];
+            foreach ($decoded['general_tips'] ?? [] as $tip) {
+                if (is_string($tip) && trim($tip) !== '') {
+                    $generalTips[] = trim($tip);
+                }
+            }
+
+            $user->deductCredits($cost, "Interview Prep Guide: Analysis & STAR Method Answers");
+
+            return response()->json([
+                'prep_guide' => $prepGuide,
+                'general_tips' => $generalTips,
+                'meta' => [
+                    'generated_at' => now()->toIso8601String(),
+                    'question_count' => count($prepGuide),
+                    'credit_cost' => $cost,
+                ],
+            ]);
 
         } catch (\Exception $e) {
             Log::error('Interview prep exception: ' . $e->getMessage());
@@ -699,9 +680,7 @@ For each question, provide:
             ], 402);
         }
 
-        $apiKey = config('services.deepseek.api_key');
-
-        if (!$apiKey) {
+        if (!$this->aiChatService->isConfigured()) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
 
@@ -709,15 +688,10 @@ For each question, provide:
         $jobDescription = $request->job_description;
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(90)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => "You are an expert career consultant and professional writer. Your goal is to write a highly persuasive, customized, and high-impact cover letter.
+            $aiResult = $this->aiChatService->chatJson([
+                [
+                    'role' => 'system',
+                    'content' => "You are an expert career consultant and professional writer. Your goal is to write a highly persuasive, customized, and high-impact cover letter.
 
 CRITICAL GUIDELINES:
 1. PERSONALIZED: Reference specific requirements and keywords from the job description.
@@ -730,22 +704,16 @@ CRITICAL GUIDELINES:
 5. LENGTH: Keep it between 250-400 words.
 6. FORMAT: Use a professional business letter format but focus on the content.
 7. FIRST PERSON: Write as if you ARE the candidate."
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => "Candidate CV Data:\n{$cvData}\n\nJob description:\n{$jobDescription}\n\nPlease generate a professional cover letter. Respond strictly in JSON format:\n{\n  \"cover_letter\": \"Full text of the cover letter with proper business formatting (Placeholders like [Date], [Hiring Manager Name] are okay)\",\n  \"strategic_approach\": \"Explain the core theme used for this specific cover letter to highlight matching strengths.\"\n}"
-                    ]
                 ],
-                'response_format' => ['type' => 'json_object'],
-            ]);
+                [
+                    'role' => 'user',
+                    'content' => "Candidate CV Data:\n{$cvData}\n\nJob description:\n{$jobDescription}\n\nPlease generate a professional cover letter. Respond strictly in JSON format:\n{\n  \"cover_letter\": \"Full text of the cover letter with proper business formatting (Placeholders like [Date], [Hiring Manager Name] are okay)\",\n  \"strategic_approach\": \"Explain the core theme used for this specific cover letter to highlight matching strengths.\"\n}"
+                ]
+            ], 90);
 
-            if ($response->successful()) {
-                $user->deductCredits($cost, "Professional Cover Letter Generation");
-                $result = json_decode($response->json('choices.0.message.content'), true);
-                return response()->json($result);
-            }
-
-            return response()->json(['error' => 'Cover letter generation failed.'], 500);
+            $user->deductCredits($cost, "Professional Cover Letter Generation");
+            $result = json_decode($aiResult['content'], true);
+            return response()->json($result);
 
         } catch (\Exception $e) {
             Log::error('Cover letter exception: ' . $e->getMessage());
@@ -842,39 +810,26 @@ CRITICAL GUIDELINES:
      */
     private function parseWithAI(string $rawText): ?array
     {
-        $apiKey = config('services.deepseek.api_key');
-        if (!$apiKey) return null;
+        if (!$this->aiChatService->isConfigured()) return null;
 
         // Truncate to reasonable length for the API
         $snippet = substr($rawText, 0, 6000);
 
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(60)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => 'You are an expert CV/resume parser. Extract all information from the resume text into a structured JSON format. Be thorough and accurate. Include everything you can find.'
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => "Parse this resume/CV text into structured JSON:\n\n{$snippet}\n\nRespond with JSON containing these fields (leave empty string or empty array if not found):\n{\n  \"full_name\": \"\",\n  \"email\": \"\",\n  \"phone\": \"\",\n  \"location\": \"\",\n  \"linkedin\": \"\",\n  \"github\": \"\",\n  \"portfolio\": \"\",\n  \"summary\": \"\",\n  \"current_title\": \"\",\n  \"years_of_experience\": \"\",\n  \"skills\": [],\n  \"languages\": [],\n  \"education\": [\n    { \"degree\": \"\", \"institution\": \"\", \"year\": \"\", \"gpa\": \"\" }\n  ],\n  \"work_experience\": [\n    { \"title\": \"\", \"company\": \"\", \"duration\": \"\", \"description\": \"\" }\n  ],\n  \"certifications\": [],\n  \"projects\": [\n    { \"name\": \"\", \"description\": \"\" }\n  ]\n}"
-                    ]
+            $result = $this->aiChatService->chatJson([
+                [
+                    'role' => 'system',
+                    'content' => 'You are an expert CV/resume parser. Extract all information from the resume text into a structured JSON format. Be thorough and accurate. Include everything you can find.'
                 ],
-                'response_format' => ['type' => 'json_object'],
-            ]);
+                [
+                    'role' => 'user',
+                    'content' => "Parse this resume/CV text into structured JSON:\n\n{$snippet}\n\nRespond with JSON containing these fields (leave empty string or empty array if not found):\n{\n  \"full_name\": \"\",\n  \"email\": \"\",\n  \"phone\": \"\",\n  \"location\": \"\",\n  \"linkedin\": \"\",\n  \"github\": \"\",\n  \"portfolio\": \"\",\n  \"summary\": \"\",\n  \"current_title\": \"\",\n  \"years_of_experience\": \"\",\n  \"skills\": [],\n  \"languages\": [],\n  \"education\": [\n    { \"degree\": \"\", \"institution\": \"\", \"year\": \"\", \"gpa\": \"\" }\n  ],\n  \"work_experience\": [\n    { \"title\": \"\", \"company\": \"\", \"duration\": \"\", \"description\": \"\" }\n  ],\n  \"certifications\": [],\n  \"projects\": [\n    { \"name\": \"\", \"description\": \"\" }\n  ]\n}"
+                ]
+            ], 60);
 
-            if ($response->successful()) {
-                $parsed = json_decode($response->json('choices.0.message.content'), true);
-                Log::info('CV parsed successfully with AI');
-                return $parsed;
-            }
-
-            Log::error('CV parse AI error: ' . $response->body());
-            return null;
+            $parsed = json_decode($result['content'], true);
+            Log::info('CV parsed successfully with AI', ['provider' => $result['provider']]);
+            return $parsed;
 
         } catch (\Exception $e) {
             Log::error('CV parse exception: ' . $e->getMessage());

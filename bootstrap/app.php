@@ -3,6 +3,13 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Auth\AuthenticationException;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -18,5 +25,61 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->report(function (\Throwable $e) {
+            logger()->error('Unhandled exception', [
+                'type' => get_class($e),
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+        });
+
+        $exceptions->render(function (\Throwable $e, Request $request) {
+            if (!$request->is('api/*')) {
+                return null;
+            }
+
+            if ($e instanceof ValidationException) {
+                return response()->json([
+                    'message' => 'Validation failed.',
+                    'error_code' => 'VALIDATION_ERROR',
+                    'errors' => $e->errors(),
+                ], 422);
+            }
+
+            if ($e instanceof AuthenticationException) {
+                return response()->json([
+                    'message' => 'Unauthenticated.',
+                    'error_code' => 'UNAUTHENTICATED',
+                ], 401);
+            }
+
+            if ($e instanceof AuthorizationException) {
+                return response()->json([
+                    'message' => 'Forbidden.',
+                    'error_code' => 'FORBIDDEN',
+                ], 403);
+            }
+
+            if ($e instanceof ModelNotFoundException || $e instanceof NotFoundHttpException) {
+                return response()->json([
+                    'message' => 'Resource not found.',
+                    'error_code' => 'NOT_FOUND',
+                ], 404);
+            }
+
+            $status = $e instanceof HttpExceptionInterface ? $e->getStatusCode() : 500;
+
+            if ($status >= 500) {
+                return response()->json([
+                    'message' => 'Something went wrong.',
+                    'error_code' => 'SERVER_ERROR',
+                ], $status);
+            }
+
+            return response()->json([
+                'message' => $e->getMessage() ?: 'Request failed.',
+                'error_code' => 'REQUEST_ERROR',
+            ], $status);
+        });
     })->create();

@@ -55,6 +55,13 @@ class SettingSeeder extends Seeder
                 'group' => 'credits',
                 'type' => 'number',
             ],
+            [
+                'key' => 'billing_enabled',
+                'value' => '0',
+                'display_name' => 'Enable Billing Checkout',
+                'group' => 'billing',
+                'type' => 'boolean',
+            ],
         ];
 
         foreach ($settings as $setting) {

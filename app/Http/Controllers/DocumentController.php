@@ -6,14 +6,19 @@ use App\Models\Document;
 use App\Models\FieldMemory;
 use App\Models\UserProfile;
 use App\Models\UserSignature;
+use App\Models\SignRequest;
+use App\Services\Ai\AiChatService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
 class DocumentController extends Controller
 {
+    public function __construct(private AiChatService $aiChatService)
+    {
+    }
+
     /**
      * Upload a new PDF document.
      */
@@ -46,11 +51,33 @@ class DocumentController extends Controller
      */
     public function index(Request $request)
     {
-        $docs = Document::where('user_id', $request->user()->id)
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $perPage = (int) $request->query('per_page', 12);
+        $page = (int) $request->query('page', 1);
 
-        return response()->json($docs);
+        $paginated = Document::where('user_id', $request->user()->id)
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        return response()->json([
+            'data' => $paginated->items(),
+            'meta' => [
+                'current_page' => $paginated->currentPage(),
+                'last_page' => $paginated->lastPage(),
+                'per_page' => $paginated->perPage(),
+                'total' => $paginated->total(),
+                'has_more' => $paginated->hasMorePages(),
+            ],
+        ]);
+    }
+
+    /**
+     * Fetch a single document (latest metadata / signed_path for DocSign).
+     */
+    public function show(Request $request, $id)
+    {
+        $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
+
+        return response()->json($doc);
     }
 
     /**
@@ -67,7 +94,10 @@ class DocumentController extends Controller
             return response()->json(['error' => 'File not found.'], 404);
         }
 
-        return Storage::disk('local')->download($path, ($type === 'signed' ? 'signed_' : '') . $doc->name);
+        return response()->download(
+            Storage::disk('local')->path($path),
+            ($type === 'signed' ? 'signed_' : '') . $doc->name
+        );
     }
 
     /**
@@ -85,6 +115,36 @@ class DocumentController extends Controller
         $doc->delete();
 
         return response()->json(['message' => 'Document deleted.']);
+    }
+
+    /**
+     * Create a shareable anonymous signing link for a document.
+     */
+    public function shareAnonymous(Request $request, $id)
+    {
+        $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
+
+        $signRequest = SignRequest::create([
+            'user_id' => $request->user()->id,
+            'document_id' => $doc->id,
+            'receiver_email' => 'anonymous@offerra.local',
+            'receiver_name' => 'Anonymous Signer',
+            'access_token' => Str::random(60),
+            'status' => 'pending',
+            'metadata' => [
+                'anonymous' => true,
+                'shared_via' => 'docsign_share_link',
+            ],
+        ]);
+
+        $frontendUrl = rtrim(config('app.frontend_url', 'http://localhost:3000'), '/');
+        $signUrl = $frontendUrl . '/sign/' . $signRequest->access_token;
+
+        return response()->json([
+            'message' => 'Anonymous signing link created.',
+            'sign_url' => $signUrl,
+            'sign_request_id' => $signRequest->id,
+        ]);
     }
 
     /**
@@ -116,17 +176,47 @@ class DocumentController extends Controller
 
         Storage::disk('local')->put($signedPath, $pdfData);
 
+        $currentMetadata = (array) ($doc->metadata ?? []);
+        $mergedMetadata = $currentMetadata;
+
+        if ($request->filled('fields')) {
+            $existingFields = collect((array) ($currentMetadata['fields'] ?? []));
+            $incomingOwnerFields = collect((array) $request->input('fields', []))
+                ->map(function ($field) {
+                    if (!is_array($field)) {
+                        return null;
+                    }
+                    $field['owner_type'] = 'owner';
+                    return $field;
+                })
+                ->filter()
+                ->values();
+
+            $preservedNonOwnerFields = $existingFields
+                ->filter(fn ($field) => ($field['owner_type'] ?? 'owner') !== 'owner')
+                ->values();
+
+            $mergedMetadata['fields'] = $preservedNonOwnerFields
+                ->concat($incomingOwnerFields)
+                ->values()
+                ->all();
+        }
+
         $doc->update([
             'signed_path' => $signedPath,
             'status' => 'signed',
             'signed_at' => now(),
-            'metadata' => $request->fields ? ['fields' => $request->fields] : $doc->metadata,
+            'metadata' => $mergedMetadata,
         ]);
 
         // Save field data to memory for future auto-fills
         if ($request->field_data) {
             foreach ($request->field_data as $name => $value) {
                 if (empty($value)) continue;
+                if (!is_string($value)) continue;
+
+                // Do not persist large binary payloads (e.g. base64 signatures/images) in memory table.
+                if (str_starts_with($value, 'data:image/')) continue;
                 
                 FieldMemory::updateOrCreate(
                     ['user_id' => $request->user()->id, 'field_name' => $name],
@@ -160,8 +250,7 @@ class DocumentController extends Controller
             return response()->json(['error' => 'No active CV data found.'], 422);
         }
 
-        $apiKey = config('services.deepseek.api_key');
-        if (!$apiKey) {
+        if (!$this->aiChatService->isConfigured()) {
             return response()->json(['error' => 'AI key not configured.'], 500);
         }
 
@@ -169,15 +258,10 @@ class DocumentController extends Controller
         $labels = json_encode($request->labels);
         
         try {
-            $response = Http::withHeaders([
-                'Authorization' => "Bearer $apiKey",
-                'Content-Type' => 'application/json',
-            ])->timeout(45)->post('https://api.deepseek.com/chat/completions', [
-                'model' => 'deepseek-chat',
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => "You are a PDF data matching expert. You will be given a user's CV data and a list of text labels extracted from a PDF form.
+            $result = $this->aiChatService->chatJson([
+                [
+                    'role' => 'system',
+                    'content' => "You are a PDF data matching expert. You will be given a user's CV data and a list of text labels extracted from a PDF form.
 Your task is to map each PDF label to its corresponding piece of information from the user's CV.
 
 RULES:
@@ -187,30 +271,24 @@ RULES:
 4. For Signature fields (e.g. 'Signature', 'Sign here', 'Applicant Signature', or lines like '_________'): Return the value '[SIGNATURE]'.
 5. For Date fields (e.g. 'Date', 'Signed on', 'Today\'s Date'): Return the value '[DATE]'.
 6. Format your response exactly as a JSON object where the key is the ORIGINAL LABEL and the value is the USER'S DATA."
-                    ],
-                    [
-                        'role' => 'user',
-                        'content' => "User CV Data:\n{$cvData}\n\nPDF Labels:\n{$labels}\n\nMap these labels to user data. Respond ONLY with the JSON mapping."
-                    ]
                 ],
-                'response_format' => ['type' => 'json_object'],
+                [
+                    'role' => 'user',
+                    'content' => "User CV Data:\n{$cvData}\n\nPDF Labels:\n{$labels}\n\nMap these labels to user data. Respond ONLY with the JSON mapping."
+                ]
+            ], 45);
+
+            $mapping = json_decode($result['content'], true);
+            
+            // Also fetch default signature if available
+            $defaultSig = UserSignature::where('user_id', $user->id)
+                ->where('is_default', true)
+                ->first() ?? UserSignature::where('user_id', $user->id)->latest()->first();
+
+            return response()->json([
+                'mapping' => $mapping,
+                'default_signature' => $defaultSig ? $defaultSig->signature_data : null
             ]);
-
-            if ($response->successful()) {
-                $mapping = json_decode($response->json('choices.0.message.content'), true);
-                
-                // Also fetch default signature if available
-                $defaultSig = UserSignature::where('user_id', $user->id)
-                    ->where('is_default', true)
-                    ->first() ?? UserSignature::where('user_id', $user->id)->latest()->first();
-
-                return response()->json([
-                    'mapping' => $mapping,
-                    'default_signature' => $defaultSig ? $defaultSig->signature_data : null
-                ]);
-            }
-
-            return response()->json(['error' => 'AI Mapping failed.'], 500);
         } catch (\Exception $e) {
             Log::error('Intelligent Autofill failed: ' . $e->getMessage());
             return response()->json(['error' => 'AI Service Error.'], 500);

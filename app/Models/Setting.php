@@ -22,6 +22,10 @@ class Setting extends Model
             return (int) $setting->value;
         }
 
+        if ($setting->type === 'boolean') {
+            return filter_var($setting->value, FILTER_VALIDATE_BOOLEAN);
+        }
+
         return $setting->value;
     }
 }
