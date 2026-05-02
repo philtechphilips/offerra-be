@@ -77,6 +77,15 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 404);
             }
 
+            if ($e instanceof \Illuminate\Http\Exceptions\ThrottleRequestsException) {
+                $headers = $e->getHeaders();
+                return response()->json([
+                    'message' => 'Too many requests. Please slow down and try again shortly.',
+                    'error_code' => 'RATE_LIMITED',
+                    'retry_after' => isset($headers['Retry-After']) ? (int) $headers['Retry-After'] : null,
+                ], 429, $headers);
+            }
+
             $status = $e instanceof HttpExceptionInterface ? $e->getStatusCode() : 500;
 
             if ($status >= 500) {

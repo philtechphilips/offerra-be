@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Notifications\GenericNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Auth\Events\Registered;
 
@@ -61,13 +62,29 @@ class AuthController extends Controller
                 'password' => 'required',
             ]);
 
+            // Lock the account after 5 *failed* attempts within 15 minutes,
+            // keyed by the submitted email and the client's IP address.
+            $throttleKey = 'login:' . strtolower($request->input('email')) . '|' . $request->ip();
+            $maxAttempts = 5;
+            $decaySeconds = 60 * 15;
+
+            if (RateLimiter::tooManyAttempts($throttleKey, $maxAttempts)) {
+                $seconds = RateLimiter::availableIn($throttleKey);
+                throw ValidationException::withMessages([
+                    'email' => ["Too many login attempts. Please try again in {$seconds} seconds."],
+                ])->status(429);
+            }
+
             $user = User::where('email', $request->email)->first();
 
             if (!$user || !Hash::check($request->password, $user->password)) {
+                RateLimiter::hit($throttleKey, $decaySeconds);
                 throw ValidationException::withMessages([
                     'email' => ['The provided credentials are incorrect.'],
                 ]);
             }
+
+            RateLimiter::clear($throttleKey);
 
             $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -95,13 +112,15 @@ class AuthController extends Controller
         return $this->safeCall(function () use ($request) {
             $request->validate(['email' => 'required|email']);
 
-            $status = \Illuminate\Support\Facades\Password::sendResetLink(
+            // Attempt to send the reset link, but never reveal whether the email
+            // exists in the system. This avoids account-enumeration leaks.
+            \Illuminate\Support\Facades\Password::sendResetLink(
                 $request->only('email')
             );
 
-            return $status === \Illuminate\Support\Facades\Password::RESET_LINK_SENT
-                ? response()->json(['message' => __($status)])
-                : response()->json(['message' => __($status)], 400);
+            return response()->json([
+                'message' => "If we find an account with that email, we'll send a reset link shortly.",
+            ]);
         }, 'AuthController@forgotPassword');
     }
 

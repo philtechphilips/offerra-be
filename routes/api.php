@@ -18,8 +18,10 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\PublicProfileController;
 use App\Http\Controllers\SettingsController;
 
-Route::post('/webhooks/paystack', [PaymentController::class, 'handlePaystackWebhook']);
-Route::post('/webhooks/polar', [PaymentController::class, 'handlePolarWebhook']);
+Route::middleware('throttle:webhooks')->group(function () {
+    Route::post('/webhooks/paystack', [PaymentController::class, 'handlePaystackWebhook']);
+    Route::post('/webhooks/polar', [PaymentController::class, 'handlePolarWebhook']);
+});
 
 Route::get('/cron/run', function (Request $request) {
     $secret = $request->query('secret');
@@ -43,15 +45,20 @@ Route::get('/cron/run', function (Request $request) {
     }
 });
 
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
-Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.reset');
+Route::middleware('throttle:auth')->group(function () {
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [AuthController::class, 'resetPassword'])->name('password.reset');
+});
 
-Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])->name('google.callback');
-Route::post('/contact', \App\Http\Controllers\ContactController::class);
-Route::get('/settings/billing-status', [SettingsController::class, 'billingStatus']);
+Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
+
+Route::middleware('throttle:public')->group(function () {
+    Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])->name('google.callback');
+    Route::post('/contact', \App\Http\Controllers\ContactController::class);
+    Route::get('/settings/billing-status', [SettingsController::class, 'billingStatus']);
+});
 
 Route::get('/email/verify/{id}/{hash}', [VerifyEmailController::class, 'verify'])
     ->middleware(['signed'])
@@ -61,7 +68,7 @@ Route::post('/email/verification-notification', [VerifyEmailController::class, '
     ->middleware(['auth:sanctum', 'throttle:6,1'])
     ->name('verification.send');
 
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/user', function (Request $request) {
         return $request->user()->load(['googleAccount', 'plan']);
     });
@@ -69,11 +76,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/auth/google/redirect', [GoogleAuthController::class, 'redirect']);
     Route::post('/auth/google/sync', [GoogleAuthController::class, 'sync']);
     Route::post('/auth/google/disconnect', [GoogleAuthController::class, 'disconnect']);
-    
+
     Route::get('/jobs', [JobApplicationController::class, 'index']);
     Route::get('/jobs/stats', [JobApplicationController::class, 'stats']);
     Route::post('/jobs', [JobApplicationController::class, 'store']);
-    Route::post('/jobs/detect', [JobApplicationController::class, 'detect']);
+    Route::post('/jobs/detect', [JobApplicationController::class, 'detect'])->middleware('throttle:ai');
     Route::get('/jobs/{id}', [JobApplicationController::class, 'show']);
     Route::put('/jobs/{id}', [JobApplicationController::class, 'update']);
     Route::delete('/jobs/{id}', [JobApplicationController::class, 'destroy']);
@@ -81,23 +88,27 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // CV & Autofill
     Route::post('/cv/upload', [CVController::class, 'upload']);
     Route::get('/cv', [CVController::class, 'show']);
-    Route::post('/cv/autofill', [CVController::class, 'autofill']);
-    Route::post('/cv/match-score', [CVController::class, 'matchScore']);
-    Route::post('/cv/generate-bios', [CVController::class, 'generateBios']);
-    Route::post('/cv/refactor', [CVController::class, 'refactorResume']);
-    Route::post('/cv/proposal', [CVController::class, 'generateProposal']);
-    Route::post('/cv/interview-prep', [CVController::class, 'generateInterviewPrep']);
-    Route::post('/cv/cover-letter', [CVController::class, 'generateCoverLetter']);
     Route::post('/cv/save-optimized', [CVController::class, 'storeRefactored']);
     Route::delete('/cv/{id}', [CVController::class, 'destroy']);
     Route::put('/cv/{id}/activate', [CVController::class, 'activate']);
+
+    // CV — AI-powered (stricter throttle for paid LLM calls)
+    Route::middleware('throttle:ai')->group(function () {
+        Route::post('/cv/autofill', [CVController::class, 'autofill']);
+        Route::post('/cv/match-score', [CVController::class, 'matchScore']);
+        Route::post('/cv/generate-bios', [CVController::class, 'generateBios']);
+        Route::post('/cv/refactor', [CVController::class, 'refactorResume']);
+        Route::post('/cv/proposal', [CVController::class, 'generateProposal']);
+        Route::post('/cv/interview-prep', [CVController::class, 'generateInterviewPrep']);
+        Route::post('/cv/cover-letter', [CVController::class, 'generateCoverLetter']);
+    });
 
     // Payments
     Route::post('/payments/initiate', [PaymentController::class, 'initiate'])->middleware('idempotent');
 
     // Public Profile Settings
     Route::put('/profile/settings', [PublicProfileController::class, 'updateSettings']);
-    Route::post('/profile/deduce', [PublicProfileController::class, 'deduceFromCV']);
+    Route::post('/profile/deduce', [PublicProfileController::class, 'deduceFromCV'])->middleware('throttle:ai');
     Route::get('/profile/check-username', [PublicProfileController::class, 'checkUsername']);
 
     // User Profile Settings
@@ -122,7 +133,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/documents/{id}/share-anonymous', [DocumentController::class, 'shareAnonymous']);
     Route::post('/documents/{id}/save-signed', [DocumentController::class, 'saveSigned']);
     Route::post('/documents/clear-memory', [DocumentController::class, 'clearMemory']);
-    Route::post('/documents/intelligent-autofill', [DocumentController::class, 'intelligentAutofill']);
+    Route::post('/documents/intelligent-autofill', [DocumentController::class, 'intelligentAutofill'])->middleware('throttle:ai');
 
     // Signatures
     Route::get('/signatures', [DocumentController::class, 'getSignatures']);
@@ -133,18 +144,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 
 // Public Profiles (no auth)
-Route::get('/u/{username}', [PublicProfileController::class, 'show']);
+Route::middleware('throttle:public')->group(function () {
+    Route::get('/u/{username}', [PublicProfileController::class, 'show']);
 
-// Plan Public Access
-Route::get('/plans', [PlanController::class, 'index']);
+    // Plan Public Access
+    Route::get('/plans', [PlanController::class, 'index']);
 
-// Guest document signing (DocSign share links)
-Route::get('/sign/{token}', [GuestSignController::class, 'show']);
-Route::get('/sign/{token}/file', [GuestSignController::class, 'file'])->name('sign.file');
-Route::post('/sign/{token}', [GuestSignController::class, 'sign']);
+    // Guest document signing (DocSign share links)
+    Route::get('/sign/{token}', [GuestSignController::class, 'show']);
+    Route::get('/sign/{token}/file', [GuestSignController::class, 'file'])->name('sign.file');
+    Route::post('/sign/{token}', [GuestSignController::class, 'sign']);
+});
 
 // Admin Dedicated Routes
-Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth:sanctum', 'role:admin', 'throttle:api'])->prefix('admin')->group(function () {
     Route::get('/stats', [AdminController::class, 'stats']);
     Route::get('/users', [AdminController::class, 'users']);
     Route::put('/users/{id}/role', [AdminController::class, 'updateUserRole']);
