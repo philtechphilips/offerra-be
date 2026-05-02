@@ -40,10 +40,19 @@ return Application::configure(basePath: dirname(__DIR__))
             }
 
             if ($e instanceof ValidationException) {
+                $errors = $e->errors();
+                $firstMessage = null;
+                foreach ($errors as $fieldErrors) {
+                    if (is_array($fieldErrors) && !empty($fieldErrors)) {
+                        $firstMessage = (string) $fieldErrors[0];
+                        break;
+                    }
+                }
+
                 return response()->json([
-                    'message' => 'Validation failed.',
+                    'message' => $firstMessage ?: ($e->getMessage() ?: 'Validation failed.'),
                     'error_code' => 'VALIDATION_ERROR',
-                    'errors' => $e->errors(),
+                    'errors' => $errors,
                 ], 422);
             }
 

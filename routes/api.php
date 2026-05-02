@@ -71,10 +71,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/auth/google/disconnect', [GoogleAuthController::class, 'disconnect']);
     
     Route::get('/jobs', [JobApplicationController::class, 'index']);
+    Route::get('/jobs/stats', [JobApplicationController::class, 'stats']);
     Route::post('/jobs', [JobApplicationController::class, 'store']);
+    Route::post('/jobs/detect', [JobApplicationController::class, 'detect']);
+    Route::get('/jobs/{id}', [JobApplicationController::class, 'show']);
     Route::put('/jobs/{id}', [JobApplicationController::class, 'update']);
     Route::delete('/jobs/{id}', [JobApplicationController::class, 'destroy']);
-    Route::post('/jobs/detect', [JobApplicationController::class, 'detect']);
 
     // CV & Autofill
     Route::post('/cv/upload', [CVController::class, 'upload']);

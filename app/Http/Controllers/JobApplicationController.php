@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\JobApplication;
 use App\Models\Setting;
 use App\Services\Ai\AiChatService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class JobApplicationController extends Controller
@@ -52,15 +53,76 @@ class JobApplicationController extends Controller
         }, 'JobApplicationController@detect');
     }
 
+    /**
+     * Aggregate counts for the user's job applications.
+     * Used by dashboard widgets and the sidebar so totals are independent of pagination.
+     */
+    public function stats(Request $request)
+    {
+        return $this->safeCall(function () use ($request) {
+            $userId = $request->user()->id;
+
+            $byStatusRaw = JobApplication::where('user_id', $userId)
+                ->select('status', DB::raw('count(*) as total'))
+                ->groupBy('status')
+                ->pluck('total', 'status')
+                ->toArray();
+
+            $statuses = ['applied', 'tracking', 'interview', 'rejected', 'offer'];
+            $byStatus = [];
+            foreach ($statuses as $status) {
+                $byStatus[$status] = (int) ($byStatusRaw[$status] ?? 0);
+            }
+
+            $total = (int) array_sum($byStatus);
+
+            $now = now();
+            $last7Start = $now->copy()->subDays(7);
+            $prev7Start = $now->copy()->subDays(14);
+
+            $recent7d = JobApplication::where('user_id', $userId)
+                ->where('created_at', '>=', $last7Start)
+                ->count();
+
+            $previous7d = JobApplication::where('user_id', $userId)
+                ->whereBetween('created_at', [$prev7Start, $last7Start])
+                ->count();
+
+            $interviewMatch = JobApplication::where('user_id', $userId)
+                ->where('status', 'interview')
+                ->whereNotNull('cv_match_score')
+                ->selectRaw('COUNT(*) as total, AVG(cv_match_score) as avg_score, SUM(CASE WHEN cv_match_score >= 70 THEN 1 ELSE 0 END) as high_match')
+                ->first();
+
+            return response()->json([
+                'total' => $total,
+                'by_status' => $byStatus,
+                'momentum' => [
+                    'recent_7d' => (int) $recent7d,
+                    'previous_7d' => (int) $previous7d,
+                ],
+                'interview_insights' => [
+                    'with_score' => (int) ($interviewMatch->total ?? 0),
+                    'avg_match_score' => $interviewMatch && $interviewMatch->total
+                        ? (int) round((float) $interviewMatch->avg_score)
+                        : 0,
+                    'high_match' => (int) ($interviewMatch->high_match ?? 0),
+                ],
+            ]);
+        }, 'JobApplicationController@stats');
+    }
+
     public function index(Request $request)
     {
         return $this->safeCall(function () use ($request) {
             $query = $request->user()->jobApplications()->latest();
 
-            if ($search = $request->query('search')) {
-                $query->where(function ($q) use ($search) {
-                    $q->where('title', 'like', "%{$search}%")
-                      ->orWhere('company', 'like', "%{$search}%");
+            if ($search = trim((string) $request->query('search'))) {
+                $like = '%' . strtolower($search) . '%';
+                $query->where(function ($q) use ($like) {
+                    $q->whereRaw('LOWER(title) LIKE ?', [$like])
+                      ->orWhereRaw('LOWER(company) LIKE ?', [$like])
+                      ->orWhereRaw('LOWER(location) LIKE ?', [$like]);
                 });
             }
 
@@ -86,6 +148,17 @@ class JobApplicationController extends Controller
                 ],
             ]);
         }, 'JobApplicationController@index');
+    }
+
+    public function show(Request $request, $id)
+    {
+        return $this->safeCall(function () use ($request, $id) {
+            $job = JobApplication::where('id', $id)
+                ->where('user_id', $request->user()->id)
+                ->firstOrFail();
+
+            return response()->json($job);
+        }, 'JobApplicationController@show');
     }
 
     public function store(Request $request)
