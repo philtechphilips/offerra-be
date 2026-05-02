@@ -10,31 +10,35 @@ class VerifyEmailController extends Controller
 {
     public function verify(Request $request)
     {
-        $user = User::findOrFail($request->route('id'));
+        return $this->safeCall(function () use ($request) {
+            $user = User::findOrFail($request->route('id'));
 
-        if (! hash_equals((string) $request->route('hash'), sha1($user->getEmailForVerification()))) {
-            return response()->json(['message' => 'Invalid verification link'], 403);
-        }
+            if (! hash_equals((string) $request->route('hash'), sha1($user->getEmailForVerification()))) {
+                return response()->json(['message' => 'Invalid verification link'], 403);
+            }
 
-        if ($user->hasVerifiedEmail()) {
+            if ($user->hasVerifiedEmail()) {
+                return redirect(config('app.frontend_url', 'https://offerra.click') . '/dashboard');
+            }
+
+            if ($user->markEmailAsVerified()) {
+                event(new Verified($user));
+            }
+
             return redirect(config('app.frontend_url', 'https://offerra.click') . '/dashboard');
-        }
-
-        if ($user->markEmailAsVerified()) {
-            event(new Verified($user));
-        }
-
-        return redirect(config('app.frontend_url', 'https://offerra.click') . '/dashboard');
+        }, 'VerifyEmailController@verify');
     }
 
     public function resend(Request $request)
     {
-        if ($request->user()->hasVerifiedEmail()) {
-            return response()->json(['message' => 'Email already verified']);
-        }
+        return $this->safeCall(function () use ($request) {
+            if ($request->user()->hasVerifiedEmail()) {
+                return response()->json(['message' => 'Email already verified']);
+            }
 
-        $request->user()->sendEmailVerificationNotification();
+            $request->user()->sendEmailVerificationNotification();
 
-        return response()->json(['message' => 'Verification link sent']);
+            return response()->json(['message' => 'Verification link sent']);
+        }, 'VerifyEmailController@resend');
     }
 }

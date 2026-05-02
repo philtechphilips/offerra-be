@@ -24,26 +24,28 @@ class DocumentController extends Controller
      */
     public function upload(Request $request)
     {
-        $request->validate([
-            'document' => 'required|file|mimes:pdf|max:10240', // 10MB max
-            'name' => 'nullable|string|max:255',
-        ]);
+        return $this->safeCall(function () use ($request) {
+            $request->validate([
+                'document' => 'required|file|mimes:pdf|max:10240',
+                'name' => 'nullable|string|max:255',
+            ]);
 
-        $file = $request->file('document');
-        $filename = $request->name ?? $file->getClientOriginalName();
-        $path = $file->store('documents/' . $request->user()->id, 'local');
+            $file = $request->file('document');
+            $filename = $request->name ?? $file->getClientOriginalName();
+            $path = $file->store('documents/' . $request->user()->id, 'local');
 
-        $doc = Document::create([
-            'user_id' => $request->user()->id,
-            'name' => $filename,
-            'file_path' => $path,
-            'status' => 'pending',
-        ]);
+            $doc = Document::create([
+                'user_id' => $request->user()->id,
+                'name' => $filename,
+                'file_path' => $path,
+                'status' => 'pending',
+            ]);
 
-        return response()->json([
-            'message' => 'Document uploaded successfully.',
-            'document' => $doc,
-        ]);
+            return response()->json([
+                'message' => 'Document uploaded successfully.',
+                'document' => $doc,
+            ]);
+        }, 'DocumentController@upload');
     }
 
     /**
@@ -51,23 +53,25 @@ class DocumentController extends Controller
      */
     public function index(Request $request)
     {
-        $perPage = (int) $request->query('per_page', 12);
-        $page = (int) $request->query('page', 1);
+        return $this->safeCall(function () use ($request) {
+            $perPage = (int) $request->query('per_page', 12);
+            $page = (int) $request->query('page', 1);
 
-        $paginated = Document::where('user_id', $request->user()->id)
-            ->orderBy('created_at', 'desc')
-            ->paginate($perPage, ['*'], 'page', $page);
+            $paginated = Document::where('user_id', $request->user()->id)
+                ->orderBy('created_at', 'desc')
+                ->paginate($perPage, ['*'], 'page', $page);
 
-        return response()->json([
-            'data' => $paginated->items(),
-            'meta' => [
-                'current_page' => $paginated->currentPage(),
-                'last_page' => $paginated->lastPage(),
-                'per_page' => $paginated->perPage(),
-                'total' => $paginated->total(),
-                'has_more' => $paginated->hasMorePages(),
-            ],
-        ]);
+            return response()->json([
+                'data' => $paginated->items(),
+                'meta' => [
+                    'current_page' => $paginated->currentPage(),
+                    'last_page' => $paginated->lastPage(),
+                    'per_page' => $paginated->perPage(),
+                    'total' => $paginated->total(),
+                    'has_more' => $paginated->hasMorePages(),
+                ],
+            ]);
+        }, 'DocumentController@index');
     }
 
     /**
@@ -75,9 +79,11 @@ class DocumentController extends Controller
      */
     public function show(Request $request, $id)
     {
-        $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
+        return $this->safeCall(function () use ($request, $id) {
+            $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
 
-        return response()->json($doc);
+            return response()->json($doc);
+        }, 'DocumentController@show');
     }
 
     /**
@@ -85,19 +91,21 @@ class DocumentController extends Controller
      */
     public function download(Request $request, $id)
     {
-        $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
-        $type = $request->query('type', 'original'); // original or signed
+        return $this->safeCall(function () use ($request, $id) {
+            $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
+            $type = $request->query('type', 'original');
 
-        $path = ($type === 'signed' && $doc->signed_path) ? $doc->signed_path : $doc->file_path;
+            $path = ($type === 'signed' && $doc->signed_path) ? $doc->signed_path : $doc->file_path;
 
-        if (!Storage::disk('local')->exists($path)) {
-            return response()->json(['error' => 'File not found.'], 404);
-        }
+            if (!Storage::disk('local')->exists($path)) {
+                return response()->json(['error' => 'File not found.'], 404);
+            }
 
-        return response()->download(
-            Storage::disk('local')->path($path),
-            ($type === 'signed' ? 'signed_' : '') . $doc->name
-        );
+            return response()->download(
+                Storage::disk('local')->path($path),
+                ($type === 'signed' ? 'signed_' : '') . $doc->name
+            );
+        }, 'DocumentController@download');
     }
 
     /**
@@ -105,16 +113,18 @@ class DocumentController extends Controller
      */
     public function destroy(Request $request, $id)
     {
-        $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
+        return $this->safeCall(function () use ($request, $id) {
+            $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
 
-        Storage::disk('local')->delete($doc->file_path);
-        if ($doc->signed_path) {
-            Storage::disk('local')->delete($doc->signed_path);
-        }
+            Storage::disk('local')->delete($doc->file_path);
+            if ($doc->signed_path) {
+                Storage::disk('local')->delete($doc->signed_path);
+            }
 
-        $doc->delete();
+            $doc->delete();
 
-        return response()->json(['message' => 'Document deleted.']);
+            return response()->json(['message' => 'Document deleted.']);
+        }, 'DocumentController@destroy');
     }
 
     /**
@@ -122,29 +132,31 @@ class DocumentController extends Controller
      */
     public function shareAnonymous(Request $request, $id)
     {
-        $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
+        return $this->safeCall(function () use ($request, $id) {
+            $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
 
-        $signRequest = SignRequest::create([
-            'user_id' => $request->user()->id,
-            'document_id' => $doc->id,
-            'receiver_email' => 'anonymous@offerra.local',
-            'receiver_name' => 'Anonymous Signer',
-            'access_token' => Str::random(60),
-            'status' => 'pending',
-            'metadata' => [
-                'anonymous' => true,
-                'shared_via' => 'docsign_share_link',
-            ],
-        ]);
+            $signRequest = SignRequest::create([
+                'user_id' => $request->user()->id,
+                'document_id' => $doc->id,
+                'receiver_email' => 'anonymous@offerra.local',
+                'receiver_name' => 'Anonymous Signer',
+                'access_token' => Str::random(60),
+                'status' => 'pending',
+                'metadata' => [
+                    'anonymous' => true,
+                    'shared_via' => 'docsign_share_link',
+                ],
+            ]);
 
-        $frontendUrl = rtrim(config('app.frontend_url', 'http://localhost:3000'), '/');
-        $signUrl = $frontendUrl . '/sign/' . $signRequest->access_token;
+            $frontendUrl = rtrim(config('app.frontend_url', 'http://localhost:3000'), '/');
+            $signUrl = $frontendUrl . '/sign/' . $signRequest->access_token;
 
-        return response()->json([
-            'message' => 'Anonymous signing link created.',
-            'sign_url' => $signUrl,
-            'sign_request_id' => $signRequest->id,
-        ]);
+            return response()->json([
+                'message' => 'Anonymous signing link created.',
+                'sign_url' => $signUrl,
+                'sign_request_id' => $signRequest->id,
+            ]);
+        }, 'DocumentController@shareAnonymous');
     }
 
     /**
@@ -152,8 +164,10 @@ class DocumentController extends Controller
      */
     public function clearMemory(Request $request)
     {
-        FieldMemory::where('user_id', $request->user()->id)->delete();
-        return response()->json(['message' => 'Field memory cleared.']);
+        return $this->safeCall(function () use ($request) {
+            FieldMemory::where('user_id', $request->user()->id)->delete();
+            return response()->json(['message' => 'Field memory cleared.']);
+        }, 'DocumentController@clearMemory');
     }
 
     /**
@@ -161,74 +175,73 @@ class DocumentController extends Controller
      */
     public function saveSigned(Request $request, $id)
     {
-        $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
-        
-        $request->validate([
-            'pdf_base64' => 'required|string',
-            'fields' => 'nullable|array',
-            'field_data' => 'nullable|array', // { "Full Name": "John Doe", ... }
-        ]);
+        return $this->safeCall(function () use ($request, $id) {
+            $doc = Document::where('user_id', $request->user()->id)->findOrFail($id);
 
-        // Decode and save the signed PDF
-        $pdfData = base64_decode($request->pdf_base64);
-        $signedFilename = 'signed_' . Str::random(10) . '_' . $doc->name;
-        $signedPath = 'documents/' . $request->user()->id . '/' . $signedFilename;
+            $request->validate([
+                'pdf_base64' => 'required|string',
+                'fields' => 'nullable|array',
+                'field_data' => 'nullable|array',
+            ]);
 
-        Storage::disk('local')->put($signedPath, $pdfData);
+            $pdfData = base64_decode($request->pdf_base64);
+            $signedFilename = 'signed_' . Str::random(10) . '_' . $doc->name;
+            $signedPath = 'documents/' . $request->user()->id . '/' . $signedFilename;
 
-        $currentMetadata = (array) ($doc->metadata ?? []);
-        $mergedMetadata = $currentMetadata;
+            Storage::disk('local')->put($signedPath, $pdfData);
 
-        if ($request->filled('fields')) {
-            $existingFields = collect((array) ($currentMetadata['fields'] ?? []));
-            $incomingOwnerFields = collect((array) $request->input('fields', []))
-                ->map(function ($field) {
-                    if (!is_array($field)) {
-                        return null;
-                    }
-                    $field['owner_type'] = 'owner';
-                    return $field;
-                })
-                ->filter()
-                ->values();
+            $currentMetadata = (array) ($doc->metadata ?? []);
+            $mergedMetadata = $currentMetadata;
 
-            $preservedNonOwnerFields = $existingFields
-                ->filter(fn ($field) => ($field['owner_type'] ?? 'owner') !== 'owner')
-                ->values();
+            if ($request->filled('fields')) {
+                $existingFields = collect((array) ($currentMetadata['fields'] ?? []));
+                $incomingOwnerFields = collect((array) $request->input('fields', []))
+                    ->map(function ($field) {
+                        if (!is_array($field)) {
+                            return null;
+                        }
+                        $field['owner_type'] = 'owner';
+                        return $field;
+                    })
+                    ->filter()
+                    ->values();
 
-            $mergedMetadata['fields'] = $preservedNonOwnerFields
-                ->concat($incomingOwnerFields)
-                ->values()
-                ->all();
-        }
+                $preservedNonOwnerFields = $existingFields
+                    ->filter(fn ($field) => ($field['owner_type'] ?? 'owner') !== 'owner')
+                    ->values();
 
-        $doc->update([
-            'signed_path' => $signedPath,
-            'status' => 'signed',
-            'signed_at' => now(),
-            'metadata' => $mergedMetadata,
-        ]);
-
-        // Save field data to memory for future auto-fills
-        if ($request->field_data) {
-            foreach ($request->field_data as $name => $value) {
-                if (empty($value)) continue;
-                if (!is_string($value)) continue;
-
-                // Do not persist large binary payloads (e.g. base64 signatures/images) in memory table.
-                if (str_starts_with($value, 'data:image/')) continue;
-                
-                FieldMemory::updateOrCreate(
-                    ['user_id' => $request->user()->id, 'field_name' => $name],
-                    ['field_value' => $value]
-                );
+                $mergedMetadata['fields'] = $preservedNonOwnerFields
+                    ->concat($incomingOwnerFields)
+                    ->values()
+                    ->all();
             }
-        }
 
-        return response()->json([
-            'message' => 'Document signed successfully.',
-            'document' => $doc,
-        ]);
+            $doc->update([
+                'signed_path' => $signedPath,
+                'status' => 'signed',
+                'signed_at' => now(),
+                'metadata' => $mergedMetadata,
+            ]);
+
+            if ($request->field_data) {
+                foreach ($request->field_data as $name => $value) {
+                    if (empty($value)) continue;
+                    if (!is_string($value)) continue;
+
+                    if (str_starts_with($value, 'data:image/')) continue;
+
+                    FieldMemory::updateOrCreate(
+                        ['user_id' => $request->user()->id, 'field_name' => $name],
+                        ['field_value' => $value]
+                    );
+                }
+            }
+
+            return response()->json([
+                'message' => 'Document signed successfully.',
+                'document' => $doc,
+            ]);
+        }, 'DocumentController@saveSigned');
     }
 
     /**
@@ -236,28 +249,29 @@ class DocumentController extends Controller
      */
     public function intelligentAutofill(Request $request)
     {
-        $request->validate([
-            'labels' => 'required|array',
-            'job_context' => 'nullable|string',
-        ]);
+        return $this->safeCall(function () use ($request) {
+            $request->validate([
+                'labels' => 'required|array',
+                'job_context' => 'nullable|string',
+            ]);
 
-        $user = $request->user();
-        $profile = UserProfile::where('user_id', $user->id)
-            ->where('is_active', true)
-            ->first() ?? UserProfile::where('user_id', $user->id)->latest()->first();
+            $user = $request->user();
+            $profile = UserProfile::where('user_id', $user->id)
+                ->where('is_active', true)
+                ->first() ?? UserProfile::where('user_id', $user->id)->latest()->first();
 
-        if (!$profile || !$profile->parsed_data) {
-            return response()->json(['error' => 'No active CV data found.'], 422);
-        }
+            if (!$profile || !$profile->parsed_data) {
+                return response()->json(['error' => 'No active CV data found.'], 422);
+            }
 
-        if (!$this->aiChatService->isConfigured()) {
-            return response()->json(['error' => 'AI key not configured.'], 500);
-        }
+            if (!$this->aiChatService->isConfigured()) {
+                Log::error('Intelligent Autofill: AI not configured.');
+                return $this->genericServerErrorResponse();
+            }
 
-        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
-        $labels = json_encode($request->labels);
-        
-        try {
+            $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+            $labels = json_encode($request->labels);
+
             $result = $this->aiChatService->chatJson([
                 [
                     'role' => 'system',
@@ -279,8 +293,7 @@ RULES:
             ], 45);
 
             $mapping = json_decode($result['content'], true);
-            
-            // Also fetch default signature if available
+
             $defaultSig = UserSignature::where('user_id', $user->id)
                 ->where('is_default', true)
                 ->first() ?? UserSignature::where('user_id', $user->id)->latest()->first();
@@ -289,10 +302,7 @@ RULES:
                 'mapping' => $mapping,
                 'default_signature' => $defaultSig ? $defaultSig->signature_data : null
             ]);
-        } catch (\Exception $e) {
-            Log::error('Intelligent Autofill failed: ' . $e->getMessage());
-            return response()->json(['error' => 'AI Service Error.'], 500);
-        }
+        }, 'DocumentController@intelligentAutofill');
     }
 
     /**
@@ -300,27 +310,25 @@ RULES:
      */
     public function getFieldSuggestions(Request $request)
     {
-        $user = $request->user();
-        
-        // 1. Get memory data
-        $memory = FieldMemory::where('user_id', $user->id)
-            ->pluck('field_value', 'field_name')
-            ->toArray();
+        return $this->safeCall(function () use ($request) {
+            $user = $request->user();
 
-        // 2. Get CV data (if exists)
-        $profile = UserProfile::where('user_id', $user->id)
-            ->where('is_active', true)
-            ->first();
+            $memory = FieldMemory::where('user_id', $user->id)
+                ->pluck('field_value', 'field_name')
+                ->toArray();
 
-        $cvData = $profile ? ($profile->parsed_data ?? []) : [];
+            $profile = UserProfile::where('user_id', $user->id)
+                ->where('is_active', true)
+                ->first();
 
-        // Flatten CV data for easy matching
-        $cvSuggestions = $this->flattenCVData($cvData);
+            $cvData = $profile ? ($profile->parsed_data ?? []) : [];
 
-        // Merge, memory takes precedence as it's more "recent" or "explicit"
-        $suggestions = array_merge($cvSuggestions, $memory);
+            $cvSuggestions = $this->flattenCVData($cvData);
 
-        return response()->json($suggestions);
+            $suggestions = array_merge($cvSuggestions, $memory);
+
+            return response()->json($suggestions);
+        }, 'DocumentController@getFieldSuggestions');
     }
 
     public function flattenCVData($data)
@@ -335,7 +343,6 @@ RULES:
             'location' => $data['location'] ?? '',
         ];
 
-        // Specific mappings
         if (!empty($data['full_name'])) {
             $parts = explode(' ', $data['full_name']);
             $flat['first name'] = $parts[0] ?? '';
@@ -350,11 +357,13 @@ RULES:
      */
     public function getSignatures(Request $request)
     {
-        $signatures = UserSignature::where('user_id', $request->user()->id)
-            ->orderBy('created_at', 'desc')
-            ->get();
+        return $this->safeCall(function () use ($request) {
+            $signatures = UserSignature::where('user_id', $request->user()->id)
+                ->orderBy('created_at', 'desc')
+                ->get();
 
-        return response()->json($signatures);
+            return response()->json($signatures);
+        }, 'DocumentController@getSignatures');
     }
 
     /**
@@ -362,28 +371,29 @@ RULES:
      */
     public function saveSignature(Request $request)
     {
-        $request->validate([
-            'signature_data' => 'required|string', // Base64 or URL
-            'type' => 'nullable|string|in:drawn,uploaded',
-            'is_default' => 'nullable|boolean',
-        ]);
+        return $this->safeCall(function () use ($request) {
+            $request->validate([
+                'signature_data' => 'required|string',
+                'type' => 'nullable|string|in:drawn,uploaded',
+                'is_default' => 'nullable|boolean',
+            ]);
 
-        // If setting as default, unset previous default
-        if ($request->is_default) {
-            UserSignature::where('user_id', $request->user()->id)->update(['is_default' => false]);
-        }
+            if ($request->is_default) {
+                UserSignature::where('user_id', $request->user()->id)->update(['is_default' => false]);
+            }
 
-        $sig = UserSignature::create([
-            'user_id' => $request->user()->id,
-            'signature_data' => $request->signature_data,
-            'type' => $request->type ?? 'drawn',
-            'is_default' => $request->is_default ?? false,
-        ]);
+            $sig = UserSignature::create([
+                'user_id' => $request->user()->id,
+                'signature_data' => $request->signature_data,
+                'type' => $request->type ?? 'drawn',
+                'is_default' => $request->is_default ?? false,
+            ]);
 
-        return response()->json([
-            'message' => 'Signature saved.',
-            'signature' => $sig
-        ]);
+            return response()->json([
+                'message' => 'Signature saved.',
+                'signature' => $sig
+            ]);
+        }, 'DocumentController@saveSignature');
     }
 
     /**
@@ -391,9 +401,11 @@ RULES:
      */
     public function deleteSignature(Request $request, $id)
     {
-        $sig = UserSignature::where('user_id', $request->user()->id)->findOrFail($id);
-        $sig->delete();
+        return $this->safeCall(function () use ($request, $id) {
+            $sig = UserSignature::where('user_id', $request->user()->id)->findOrFail($id);
+            $sig->delete();
 
-        return response()->json(['message' => 'Signature deleted.']);
+            return response()->json(['message' => 'Signature deleted.']);
+        }, 'DocumentController@deleteSignature');
     }
 }

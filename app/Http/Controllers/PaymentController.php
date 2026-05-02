@@ -22,27 +22,29 @@ class PaymentController extends Controller
      */
     public function initiate(Request $request)
     {
-        $billingEnabled = Setting::getVal('billing_enabled', false);
-        if (!$billingEnabled) {
-            return response()->json([
-                'status' => 'disabled',
-                'message' => 'Offerra is fully free for now. Billing is temporarily disabled.',
-            ], 200);
-        }
+        return $this->safeCall(function () use ($request) {
+            $billingEnabled = Setting::getVal('billing_enabled', false);
+            if (!$billingEnabled) {
+                return response()->json([
+                    'status' => 'disabled',
+                    'message' => 'Offerra is fully free for now. Billing is temporarily disabled.',
+                ], 200);
+            }
 
-        $request->validate([
-            'plan_id' => 'required|exists:plans,id',
-            'region' => 'required|in:global,nigeria',
-        ]);
+            $request->validate([
+                'plan_id' => 'required|exists:plans,id',
+                'region' => 'required|in:global,nigeria',
+            ]);
 
-        $user = $request->user();
-        $plan = Plan::find($request->plan_id);
+            $user = $request->user();
+            $plan = Plan::find($request->plan_id);
 
-        if ($request->region === 'nigeria') {
-            return $this->initiatePaystack($user, $plan);
-        }
+            if ($request->region === 'nigeria') {
+                return $this->initiatePaystack($user, $plan);
+            }
 
-        return $this->initiatePolar($user, $plan);
+            return $this->initiatePolar($user, $plan);
+        }, 'PaymentController@initiate');
     }
 
     protected function initiatePaystack($user, $plan)
@@ -50,7 +52,7 @@ class PaymentController extends Controller
         $url = "https://api.paystack.co/transaction/initialize";
         $fields = [
             'email' => $user->email,
-            'amount' => $plan->price_ngn * 100, // Paystack expects kobo
+            'amount' => $plan->price_ngn * 100,
             'callback_url' => config('app.frontend_url') . "/dashboard/billing?status=success",
             'metadata' => [
                 'user_id' => $user->id,
@@ -69,21 +71,18 @@ class PaymentController extends Controller
             return response()->json($response->json()['data']);
         }
 
-        return response()->json(['error' => 'Failed to initialize Paystack payment'], 500);
+        Log::error('Paystack Initialization Error', ['response' => $response->body()]);
+        return $this->genericServerErrorResponse();
     }
 
     protected function initiatePolar($user, $plan)
     {
-        // Polar API v1 Checkout Create
-        $url = config('services.polar.server') === 'sandbox' 
-            ? "https://sandbox-api.polar.sh/v1/checkouts" 
+        $url = config('services.polar.server') === 'sandbox'
+            ? "https://sandbox-api.polar.sh/v1/checkouts"
             : "https://api.polar.sh/v1/checkouts";
 
-        // If plan has a polar_product_id, we use it. Otherwise we create a custom checkout if allowed.
-        // For now, let's assume we use Product IDs if present.
-        
         $fields = [
-            'product_id' => $plan->polar_product_id, // Ensure this is set in admin
+            'product_id' => $plan->polar_product_id,
             'customer_email' => $user->email,
             'success_url' => config('services.polar.success_url'),
             'cancel_url' => config('services.polar.cancel_url'),
@@ -101,185 +100,169 @@ class PaymentController extends Controller
         }
 
         Log::error('Polar Initialization Error', ['response' => $response->body()]);
-        return response()->json(['error' => 'Failed to initialize Polar payment. Make sure Polar Product ID is set.'], 500);
+        return $this->genericServerErrorResponse();
     }
 
     public function handlePaystackWebhook(Request $request)
     {
-        // 1. Verify Signature
-        $signature = $request->header('x-paystack-signature');
-        if (!$signature || $signature !== hash_hmac('sha512', $request->getContent(), config('services.paystack.secret'))) {
-            return response()->json(['message' => 'Invalid signature'], 400);
-        }
-
-        $event = $request->all();
-        Log::info('Paystack Webhook Received', ['event' => $event['event'] ?? 'unknown']);
-
-        if ($event['event'] === 'charge.success') {
-            $data = $event['data'];
-            $metadata = $data['metadata'] ?? [];
-            
-            // Handle case where metadata might be a JSON string
-            if (is_string($metadata)) {
-                $metadata = json_decode($metadata, true);
+        return $this->safeCall(function () use ($request) {
+            $signature = $request->header('x-paystack-signature');
+            if (!$signature || $signature !== hash_hmac('sha512', $request->getContent(), config('services.paystack.secret'))) {
+                return response()->json(['message' => 'Invalid signature'], 400);
             }
 
-            $userId = $metadata['user_id'] ?? null;
-            $planId = $metadata['plan_id'] ?? null;
+            $event = $request->all();
+            Log::info('Paystack Webhook Received', ['event' => $event['event'] ?? 'unknown']);
 
-            if (!$userId || !$planId) {
-                Log::error("Paystack Webhook: Missing User ID or Plan ID in metadata", ['metadata' => $metadata]);
-                return response()->json(['message' => 'Missing metadata'], 400);
-            }
+            if ($event['event'] === 'charge.success') {
+                $data = $event['data'];
+                $metadata = $data['metadata'] ?? [];
 
-            $user = User::find($userId);
-            $plan = Plan::find($planId);
-
-            if ($user && $plan) {
-                // GLOBAL IDEMPOTENCY CHECK
-                $webhookCacheKey = "webhook:processed:{$data['reference']}";
-                if (Cache::has($webhookCacheKey)) {
-                    Log::info('Paystack Webhook: Reference already processed (Global check)', ['reference' => $data['reference']]);
-                    return response()->json(['status' => 'success']);
+                if (is_string($metadata)) {
+                    $metadata = json_decode($metadata, true);
                 }
 
-                DB::transaction(function () use ($user, $plan, $data, $metadata, $planId, $webhookCacheKey) {
-                    $user->update([
-                        'plan_id' => $planId,
-                        'credits' => ($user->credits ?? 0) + $plan->credits,
-                        'subscription_provider' => 'paystack',
-                        'subscription_id' => $data['reference'],
-                        'subscription_status' => 'active',
-                        'subscription_ends_at' => null,
-                    ]);
+                $userId = $metadata['user_id'] ?? null;
+                $planId = $metadata['plan_id'] ?? null;
 
-                    // Log Credit Change
-                    $user->logCreditChange($plan->credits, 'top-up', "Purchased {$plan->name} pack via Paystack");
+                if (!$userId || !$planId) {
+                    Log::error("Paystack Webhook: Missing User ID or Plan ID in metadata", ['metadata' => $metadata]);
+                    return response()->json(['message' => 'Missing metadata'], 400);
+                }
 
-                    // Send Notification
-                    $user->notify(new GenericNotification(
-                        'Top-up Successful', 
-                        "Successfully added {$plan->credits} credits to your account via Paystack.",
-                        'success',
-                        '/dashboard/billing'
-                    ));
-
-                    // Record Transaction
-                    $transaction = Transaction::create([
-                        'user_id' => $user->id,
-                        'plan_id' => $plan->id,
-                        'amount' => $data['amount'] / 100,
-                        'currency' => $data['currency'] ?? 'NGN',
-                        'provider' => 'paystack',
-                        'reference' => $data['reference'],
-                        'status' => 'success',
-                        'metadata' => $metadata,
-                    ]);
-
-                    // Send Receipt (Inside transaction ensures it's recordable, but ideally outside to avoid blocking DB on mailer)
-                    // But if it fails, we want the transaction to fail?
-                    // Actually, Mail is usually async or we catch it.
-                    try {
-                        Mail::to($user->email)->send(new PaymentReceiptMail($transaction));
-                    } catch (\Exception $e) {
-                        Log::error("Paystack Receipt Email Failed: " . $e->getMessage());
-                    }
-
-                    // Store in cache for 30 days
-                    Cache::put($webhookCacheKey, true, now()->addDays(30));
-                });
-                
-                Log::info("Paystack: Credits added for user {$user->id}. New total: {$user->credits}");
-            } else {
-                Log::error("Paystack Webhook: User or Plan not found", [
-                    'userId' => $userId, 
-                    'planId' => $planId, 
-                    'user_found' => !!$user, 
-                    'plan_found' => !!$plan
-                ]);
-            }
-        }
-
-        return response()->json(['status' => 'success']);
-    }
-
-    public function handlePolarWebhook(Request $request)
-    {
-        // Polar Webhook Verification
-        // Polar sends a signature that should be verified with the secret
-        // For brevity in this setup, I'll focus on the logic, but usually you'd verify signature.
-        
-        $event = $request->all();
-        $type = $event['type'] ?? '';
-        
-        Log::info('Polar Webhook Received', ['type' => $type]);
-
-        if ($type === 'order.created') {
-            $order = $event['data'];
-            $metadata = $order['metadata'] ?? [];
-            $userId = $metadata['user_id'] ?? null;
-            $planId = $metadata['plan_id'] ?? null;
-
-            if ($userId && $planId) {
                 $user = User::find($userId);
                 $plan = Plan::find($planId);
+
                 if ($user && $plan) {
-                    // GLOBAL IDEMPOTENCY CHECK
-                    $webhookCacheKey = "webhook:processed:{$order['id']}";
+                    $webhookCacheKey = "webhook:processed:{$data['reference']}";
                     if (Cache::has($webhookCacheKey)) {
-                        Log::info('Polar Webhook: Reference already processed (Global check)', ['reference' => $order['id']]);
+                        Log::info('Paystack Webhook: Reference already processed (Global check)', ['reference' => $data['reference']]);
                         return response()->json(['status' => 'success']);
                     }
 
-                    DB::transaction(function () use ($user, $plan, $order, $metadata, $planId, $webhookCacheKey) {
+                    DB::transaction(function () use ($user, $plan, $data, $metadata, $planId, $webhookCacheKey) {
                         $user->update([
                             'plan_id' => $planId,
                             'credits' => ($user->credits ?? 0) + $plan->credits,
-                            'subscription_provider' => 'polar',
-                            'subscription_id' => $order['id'],
+                            'subscription_provider' => 'paystack',
+                            'subscription_id' => $data['reference'],
                             'subscription_status' => 'active',
                             'subscription_ends_at' => null,
                         ]);
 
-                        // Log Credit Change
-                        $user->logCreditChange($plan->credits, 'top-up', "Purchased {$plan->name} pack via Polar");
+                        $user->logCreditChange($plan->credits, 'top-up', "Purchased {$plan->name} pack via Paystack");
 
-                        // Send Notification
                         $user->notify(new GenericNotification(
-                            'Top-up Successful', 
-                            "Successfully added {$plan->credits} credits to your account via Polar.",
+                            'Top-up Successful',
+                            "Successfully added {$plan->credits} credits to your account via Paystack.",
                             'success',
                             '/dashboard/billing'
                         ));
 
-                        // Record Transaction
                         $transaction = Transaction::create([
                             'user_id' => $user->id,
                             'plan_id' => $plan->id,
-                            'amount' => $order['amount'] / 100,
-                            'currency' => strtoupper($order['currency'] ?? 'USD'),
-                            'provider' => 'polar',
-                            'reference' => $order['id'],
+                            'amount' => $data['amount'] / 100,
+                            'currency' => $data['currency'] ?? 'NGN',
+                            'provider' => 'paystack',
+                            'reference' => $data['reference'],
                             'status' => 'success',
                             'metadata' => $metadata,
                         ]);
 
-                        // Send Receipt
                         try {
                             Mail::to($user->email)->send(new PaymentReceiptMail($transaction));
                         } catch (\Exception $e) {
-                            Log::error("Polar Receipt Email Failed: " . $e->getMessage());
+                            Log::error("Paystack Receipt Email Failed: " . $e->getMessage());
                         }
 
-                        // Store in cache for 30 days
                         Cache::put($webhookCacheKey, true, now()->addDays(30));
                     });
 
-                    Log::info("Polar: Credits added for user {$user->id}. New total: {$user->credits}");
+                    Log::info("Paystack: Credits added for user {$user->id}. New total: {$user->credits}");
+                } else {
+                    Log::error("Paystack Webhook: User or Plan not found", [
+                        'userId' => $userId,
+                        'planId' => $planId,
+                        'user_found' => !!$user,
+                        'plan_found' => !!$plan
+                    ]);
                 }
             }
-        }
 
-        return response()->json(['status' => 'success']);
+            return response()->json(['status' => 'success']);
+        }, 'PaymentController@handlePaystackWebhook');
+    }
+
+    public function handlePolarWebhook(Request $request)
+    {
+        return $this->safeCall(function () use ($request) {
+            $event = $request->all();
+            $type = $event['type'] ?? '';
+
+            Log::info('Polar Webhook Received', ['type' => $type]);
+
+            if ($type === 'order.created') {
+                $order = $event['data'];
+                $metadata = $order['metadata'] ?? [];
+                $userId = $metadata['user_id'] ?? null;
+                $planId = $metadata['plan_id'] ?? null;
+
+                if ($userId && $planId) {
+                    $user = User::find($userId);
+                    $plan = Plan::find($planId);
+                    if ($user && $plan) {
+                        $webhookCacheKey = "webhook:processed:{$order['id']}";
+                        if (Cache::has($webhookCacheKey)) {
+                            Log::info('Polar Webhook: Reference already processed (Global check)', ['reference' => $order['id']]);
+                            return response()->json(['status' => 'success']);
+                        }
+
+                        DB::transaction(function () use ($user, $plan, $order, $metadata, $planId, $webhookCacheKey) {
+                            $user->update([
+                                'plan_id' => $planId,
+                                'credits' => ($user->credits ?? 0) + $plan->credits,
+                                'subscription_provider' => 'polar',
+                                'subscription_id' => $order['id'],
+                                'subscription_status' => 'active',
+                                'subscription_ends_at' => null,
+                            ]);
+
+                            $user->logCreditChange($plan->credits, 'top-up', "Purchased {$plan->name} pack via Polar");
+
+                            $user->notify(new GenericNotification(
+                                'Top-up Successful',
+                                "Successfully added {$plan->credits} credits to your account via Polar.",
+                                'success',
+                                '/dashboard/billing'
+                            ));
+
+                            $transaction = Transaction::create([
+                                'user_id' => $user->id,
+                                'plan_id' => $plan->id,
+                                'amount' => $order['amount'] / 100,
+                                'currency' => strtoupper($order['currency'] ?? 'USD'),
+                                'provider' => 'polar',
+                                'reference' => $order['id'],
+                                'status' => 'success',
+                                'metadata' => $metadata,
+                            ]);
+
+                            try {
+                                Mail::to($user->email)->send(new PaymentReceiptMail($transaction));
+                            } catch (\Exception $e) {
+                                Log::error("Polar Receipt Email Failed: " . $e->getMessage());
+                            }
+
+                            Cache::put($webhookCacheKey, true, now()->addDays(30));
+                        });
+
+                        Log::info("Polar: Credits added for user {$user->id}. New total: {$user->credits}");
+                    }
+                }
+            }
+
+            return response()->json(['status' => 'success']);
+        }, 'PaymentController@handlePolarWebhook');
     }
 }

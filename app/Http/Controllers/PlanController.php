@@ -15,17 +15,18 @@ class PlanController extends Controller
      */
     public function index(Request $request)
     {
-        $user = $request->user();
-        $query = Plan::where('is_active', true);
+        return $this->safeCall(function () use ($request) {
+            $user = $request->user();
+            $query = Plan::where('is_active', true);
 
-        // If user already has a plan assigned, hide the free ones
-        if ($user && $user->plan_id) {
-            $query->where('price_usd', '>', 0);
-        }
-        
-        $plans = $query->orderBy('price_usd', 'asc')->get();
+            if ($user && $user->plan_id) {
+                $query->where('price_usd', '>', 0);
+            }
 
-        return response()->json($plans);
+            $plans = $query->orderBy('price_usd', 'asc')->get();
+
+            return response()->json($plans);
+        }, 'PlanController@index');
     }
 
     /**
@@ -33,7 +34,9 @@ class PlanController extends Controller
      */
     public function adminIndex()
     {
-        return response()->json(Plan::latest()->get());
+        return $this->safeCall(function () {
+            return response()->json(Plan::latest()->get());
+        }, 'PlanController@adminIndex');
     }
 
     /**
@@ -41,30 +44,31 @@ class PlanController extends Controller
      */
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'price_usd' => 'required|numeric|min:0',
-            'price_ngn' => 'required|numeric|min:0',
-            'credits' => 'required|integer|min:0',
-            'description' => 'nullable|string',
-            'features' => 'nullable|array',
-            'not_included' => 'nullable|array',
-            'is_popular' => 'boolean',
-            'btn_text' => 'nullable|string',
-            'is_active' => 'boolean',
-        ]);
+        return $this->safeCall(function () use ($request) {
+            $validated = $request->validate([
+                'name' => 'required|string|max:255',
+                'price_usd' => 'required|numeric|min:0',
+                'price_ngn' => 'required|numeric|min:0',
+                'credits' => 'required|integer|min:0',
+                'description' => 'nullable|string',
+                'features' => 'nullable|array',
+                'not_included' => 'nullable|array',
+                'is_popular' => 'boolean',
+                'btn_text' => 'nullable|string',
+                'is_active' => 'boolean',
+            ]);
 
-        $validated['slug'] = Str::slug($validated['name']);
+            $validated['slug'] = Str::slug($validated['name']);
 
-        $plan = Plan::create($validated);
+            $plan = Plan::create($validated);
 
-        // Sync with external providers
-        $this->syncWithExternalProviders($plan);
+            $this->syncWithExternalProviders($plan);
 
-        return response()->json([
-            'message' => 'Plan created and synced successfully',
-            'plan' => $plan
-        ]);
+            return response()->json([
+                'message' => 'Plan created and synced successfully',
+                'plan' => $plan
+            ]);
+        }, 'PlanController@store');
     }
 
     /**
@@ -72,36 +76,37 @@ class PlanController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $plan = Plan::findOrFail($id);
+        return $this->safeCall(function () use ($request, $id) {
+            $plan = Plan::findOrFail($id);
 
-        $validated = $request->validate([
-            'name' => 'sometimes|required|string|max:255',
-            'price_usd' => 'sometimes|required|numeric|min:0',
-            'price_ngn' => 'sometimes|required|numeric|min:0',
-            'credits' => 'sometimes|required|integer|min:0',
-            'description' => 'nullable|string',
-            'features' => 'nullable|array',
-            'not_included' => 'nullable|array',
-            'is_popular' => 'boolean',
-            'is_active' => 'boolean',
-            'btn_text' => 'nullable|string',
-            'polar_product_id' => 'nullable|string',
-            'paystack_plan_id' => 'nullable|string',
-        ]);
+            $validated = $request->validate([
+                'name' => 'sometimes|required|string|max:255',
+                'price_usd' => 'sometimes|required|numeric|min:0',
+                'price_ngn' => 'sometimes|required|numeric|min:0',
+                'credits' => 'sometimes|required|integer|min:0',
+                'description' => 'nullable|string',
+                'features' => 'nullable|array',
+                'not_included' => 'nullable|array',
+                'is_popular' => 'boolean',
+                'is_active' => 'boolean',
+                'btn_text' => 'nullable|string',
+                'polar_product_id' => 'nullable|string',
+                'paystack_plan_id' => 'nullable|string',
+            ]);
 
-        if (isset($validated['name'])) {
-            $validated['slug'] = Str::slug($validated['name']);
-        }
+            if (isset($validated['name'])) {
+                $validated['slug'] = Str::slug($validated['name']);
+            }
 
-        $plan->update($validated);
+            $plan->update($validated);
 
-        // Sync updates with external providers
-        $this->syncWithExternalProviders($plan);
+            $this->syncWithExternalProviders($plan);
 
-        return response()->json([
-            'message' => 'Plan updated and synced successfully',
-            'plan' => $plan
-        ]);
+            return response()->json([
+                'message' => 'Plan updated and synced successfully',
+                'plan' => $plan
+            ]);
+        }, 'PlanController@update');
     }
 
     /**
@@ -132,7 +137,6 @@ class PlanController extends Controller
 
         try {
             if (!$plan->polar_product_id) {
-                // Product doesn't exist — create it
                 $response = Http::withToken($token)->post($baseUrl, [
                     'name'            => $plan->name,
                     'description'     => $plan->description,
@@ -153,7 +157,6 @@ class PlanController extends Controller
                     Log::error("Polar Create Failed [{$plan->name}]: " . $response->body());
                 }
             } else {
-                // Product exists — fetch current prices so we can archive them and set a new one
                 $getResponse = Http::withToken($token)->get("{$baseUrl}/{$plan->polar_product_id}");
 
                 $prices = [];
@@ -166,7 +169,6 @@ class PlanController extends Controller
                     }
                 }
 
-                // Add the new price
                 $prices[] = [
                     'amount_type'    => 'fixed',
                     'price_amount'   => (int)($plan->price_usd * 100),
@@ -198,10 +200,9 @@ class PlanController extends Controller
 
         try {
             if (!$plan->paystack_plan_id) {
-                // Plan doesn't exist — create it
                 $response = Http::withToken($token)->post('https://api.paystack.co/plan', [
                     'name'        => $plan->name,
-                    'amount'      => (int)($plan->price_ngn * 100), // kobo
+                    'amount'      => (int)($plan->price_ngn * 100),
                     'description' => $plan->description,
                 ]);
 
@@ -214,7 +215,6 @@ class PlanController extends Controller
                     Log::error("Paystack Create Failed [{$plan->name}]: " . $response->body());
                 }
             } else {
-                // Plan exists — update name and amount
                 $response = Http::withToken($token)->put("https://api.paystack.co/plan/{$plan->paystack_plan_id}", [
                     'name'        => $plan->name,
                     'amount'      => (int)($plan->price_ngn * 100),
@@ -237,9 +237,11 @@ class PlanController extends Controller
      */
     public function destroy($id)
     {
-        $plan = Plan::findOrFail($id);
-        $plan->delete();
+        return $this->safeCall(function () use ($id) {
+            $plan = Plan::findOrFail($id);
+            $plan->delete();
 
-        return response()->json(['message' => 'Plan deleted successfully']);
+            return response()->json(['message' => 'Plan deleted successfully']);
+        }, 'PlanController@destroy');
     }
 }

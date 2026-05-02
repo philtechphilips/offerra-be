@@ -20,51 +20,51 @@ class PublicProfileController extends Controller
      */
     public function show(string $username)
     {
-        $user = User::where('username', $username)
-            ->where('public_profile_enabled', true)
-            ->firstOrFail();
+        return $this->safeCall(function () use ($username) {
+            $user = User::where('username', $username)
+                ->where('public_profile_enabled', true)
+                ->firstOrFail();
 
-        // Active CV parsed data
-        $activeCV = $user->cvs()->where('is_active', true)->latest()->first()
-            ?? $user->cvs()->latest()->first();
+            $activeCV = $user->cvs()->where('is_active', true)->latest()->first()
+                ?? $user->cvs()->latest()->first();
 
-        $parsedData = $activeCV?->parsed_data ?? [];
+            $parsedData = $activeCV?->parsed_data ?? [];
 
-        // Tech stack from job applications
-        $techStack = $user->jobApplications()
-            ->whereNotNull('tech_stack')
-            ->get()
-            ->flatMap(fn($j) => $j->tech_stack ?? [])
-            ->filter()
-            ->countBy()
-            ->sortDesc()
-            ->keys()
-            ->take(20)
-            ->values()
-            ->toArray();
+            $techStack = $user->jobApplications()
+                ->whereNotNull('tech_stack')
+                ->get()
+                ->flatMap(fn ($j) => $j->tech_stack ?? [])
+                ->filter()
+                ->countBy()
+                ->sortDesc()
+                ->keys()
+                ->take(20)
+                ->values()
+                ->toArray();
 
-        return response()->json([
-            'user' => [
-                'name'                 => $user->name,
-                'username'             => $user->username,
-                'professional_headline'=> $user->professional_headline,
-                'location'             => $user->location,
-                'linkedin_url'         => $user->linkedin_url,
-                'github_url'           => $user->github_url,
-                'twitter_url'          => $user->twitter_url,
-                'portfolio_url'        => $user->portfolio_url,
-                'profile_theme'        => $user->profile_theme ?? 'modern',
-            ],
-            'cv' => [
-                'summary'        => $parsedData['summary'] ?? $parsedData['about'] ?? null,
-                'skills'         => $parsedData['skills'] ?? [],
-                'work_experience'=> $parsedData['work_experience'] ?? [],
-                'education'      => $parsedData['education'] ?? [],
-                'projects'       => $parsedData['projects'] ?? [],
-                'certifications' => $parsedData['certifications'] ?? [],
-            ],
-            'tech_stack' => $techStack,
-        ]);
+            return response()->json([
+                'user' => [
+                    'name'                 => $user->name,
+                    'username'             => $user->username,
+                    'professional_headline' => $user->professional_headline,
+                    'location'             => $user->location,
+                    'linkedin_url'         => $user->linkedin_url,
+                    'github_url'           => $user->github_url,
+                    'twitter_url'          => $user->twitter_url,
+                    'portfolio_url'        => $user->portfolio_url,
+                    'profile_theme'        => $user->profile_theme ?? 'modern',
+                ],
+                'cv' => [
+                    'summary'        => $parsedData['summary'] ?? $parsedData['about'] ?? null,
+                    'skills'         => $parsedData['skills'] ?? [],
+                    'work_experience' => $parsedData['work_experience'] ?? [],
+                    'education'      => $parsedData['education'] ?? [],
+                    'projects'       => $parsedData['projects'] ?? [],
+                    'certifications' => $parsedData['certifications'] ?? [],
+                ],
+                'tech_stack' => $techStack,
+            ]);
+        }, 'PublicProfileController@show');
     }
 
     /**
@@ -72,33 +72,35 @@ class PublicProfileController extends Controller
      */
     public function updateSettings(Request $request)
     {
-        $user = $request->user();
+        return $this->safeCall(function () use ($request) {
+            $user = $request->user();
 
-        $validated = $request->validate([
-            'username' => [
-                'nullable',
-                'string',
-                'min:3',
-                'max:30',
-                'regex:/^[a-z0-9\-]+$/',
-                Rule::unique('users', 'username')->ignore($user->id),
-            ],
-            'public_profile_enabled' => 'boolean',
-            'location'               => 'nullable|string|max:100',
-            'linkedin_url'           => 'nullable|url',
-            'github_url'             => 'nullable|url',
-            'twitter_url'            => 'nullable|url',
-            'portfolio_url'          => 'nullable|url',
-            'professional_headline'  => 'nullable|string|max:255',
-            'profile_theme'          => 'nullable|string|in:modern,minimalist,bento',
-        ]);
+            $validated = $request->validate([
+                'username' => [
+                    'nullable',
+                    'string',
+                    'min:3',
+                    'max:30',
+                    'regex:/^[a-z0-9\-]+$/',
+                    Rule::unique('users', 'username')->ignore($user->id),
+                ],
+                'public_profile_enabled' => 'boolean',
+                'location'               => 'nullable|string|max:100',
+                'linkedin_url'           => 'nullable|url',
+                'github_url'             => 'nullable|url',
+                'twitter_url'            => 'nullable|url',
+                'portfolio_url'          => 'nullable|url',
+                'professional_headline'  => 'nullable|string|max:255',
+                'profile_theme'          => 'nullable|string|in:modern,minimalist,bento',
+            ]);
 
-        $user->update($validated);
+            $user->update($validated);
 
-        return response()->json([
-            'message' => 'Public profile updated.',
-            'user'    => $user->fresh(['plan', 'googleAccount']),
-        ]);
+            return response()->json([
+                'message' => 'Public profile updated.',
+                'user'    => $user->fresh(['plan', 'googleAccount']),
+            ]);
+        }, 'PublicProfileController@updateSettings');
     }
 
     /**
@@ -106,41 +108,43 @@ class PublicProfileController extends Controller
      */
     public function deduceFromCV(Request $request)
     {
-        $user = $request->user();
-        $activeCV = $user->cvs()->where('is_active', true)->latest()->first()
-            ?? $user->cvs()->latest()->first();
+        return $this->safeCall(function () use ($request) {
+            $user = $request->user();
+            $activeCV = $user->cvs()->where('is_active', true)->latest()->first()
+                ?? $user->cvs()->latest()->first();
 
-        if (!$activeCV) {
-            return response()->json(['error' => 'No CV found. Please upload a resume first.'], 422);
-        }
+            if (!$activeCV) {
+                return response()->json(['error' => 'No CV found. Please upload a resume first.'], 422);
+            }
 
-        if (!$this->aiChatService->isConfigured()) {
-            // Fallback to basic mapping if AI is not configured
-            $data = $activeCV->parsed_data ?? [];
-            return response()->json([
-                'message' => 'Profile data deduced (non-AI fallback).',
-                'deduced' => [
-                    'location'              => $data['location'] ?? $user->location,
-                    'linkedin_url'          => $data['linkedin'] ?? $data['linkedin_url'] ?? $user->linkedin_url,
-                    'github_url'            => $data['github'] ?? $data['github_url'] ?? $user->github_url,
-                    'portfolio_url'         => $data['portfolio'] ?? $data['portfolio_url'] ?? $data['website'] ?? $user->portfolio_url,
-                    'professional_headline' => $data['current_title'] ?? $data['headline'] ?? $user->professional_headline,
-                ]
-            ]);
-        }
+            $fallback = function () use ($activeCV, $user) {
+                $data = $activeCV->parsed_data ?? [];
+                return response()->json([
+                    'message' => 'Profile data deduced (non-AI fallback).',
+                    'deduced' => [
+                        'location'              => $data['location'] ?? $user->location,
+                        'linkedin_url'          => $data['linkedin'] ?? $data['linkedin_url'] ?? $user->linkedin_url,
+                        'github_url'            => $data['github'] ?? $data['github_url'] ?? $user->github_url,
+                        'portfolio_url'         => $data['portfolio'] ?? $data['portfolio_url'] ?? $data['website'] ?? $user->portfolio_url,
+                        'professional_headline' => $data['current_title'] ?? $data['headline'] ?? $user->professional_headline,
+                    ]
+                ]);
+            };
 
-        // Use AI to extract/deduce specific profile fields
-        // Combine raw text (for detail) and parsed data (for structure) to give AI context
-        $rawText = $activeCV->cv_raw_text;
-        $parsedData = json_encode($activeCV->parsed_data, JSON_PRETTY_PRINT);
+            if (!$this->aiChatService->isConfigured()) {
+                return $fallback();
+            }
 
-        $sourceContext = "STRUCTURED DATA:\n{$parsedData}\n\nRAW CV TEXT:\n{$rawText}";
+            $rawText = $activeCV->cv_raw_text;
+            $parsedData = json_encode($activeCV->parsed_data, JSON_PRETTY_PRINT);
 
-        try {
-            $result = $this->aiChatService->chatJson([
-                [
-                    'role' => 'system',
-                    'content' => "You are a world-class career profile data extractor. Your goal is to find specific profile links and info from the provided CV data (both structured and raw).
+            $sourceContext = "STRUCTURED DATA:\n{$parsedData}\n\nRAW CV TEXT:\n{$rawText}";
+
+            try {
+                $result = $this->aiChatService->chatJson([
+                    [
+                        'role' => 'system',
+                        'content' => "You are a world-class career profile data extractor. Your goal is to find specific profile links and info from the provided CV data (both structured and raw).
                         
                         CRITICAL CHALLENGE: 
                         Sometimes links like GitHub, Portfolio, or Personal Websites are hidden in the text as plain strings or shorthand (e.g., 'github.com/username' or 'portfolio.io'). You MUST find these and return them as full URLs.
@@ -154,35 +158,24 @@ class PublicProfileController extends Controller
                         - professional_headline: A 1-sentence punchy professional headline (create one if missing).
                         
                         Return ONLY a valid JSON object. If a data point is absolutely not present, return null for that key."
-                ],
-                [
-                    'role' => 'user',
-                    'content' => "Context for deduction:\n\n{$sourceContext}"
-                ]
-            ], 60);
+                    ],
+                    [
+                        'role' => 'user',
+                        'content' => "Context for deduction:\n\n{$sourceContext}"
+                    ]
+                ], 60);
 
-            $deduced = json_decode($result['content'], true);
+                $deduced = json_decode($result['content'], true);
 
-            return response()->json([
-                'message' => 'Profile data deduced with AI.',
-                'deduced' => $deduced
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('AI Deduction error: ' . $e->getMessage());
-            // Final fallback
-            $data = $activeCV->parsed_data ?? [];
-            return response()->json([
-                'message' => 'Profile data deduced (Fallback).',
-                'deduced' => [
-                    'location'              => $data['location'] ?? $user->location,
-                    'linkedin_url'          => $data['linkedin'] ?? $user->linkedin_url,
-                    'github_url'            => $data['github'] ?? $user->github_url,
-                    'portfolio_url'         => $data['portfolio'] ?? $user->portfolio_url,
-                    'professional_headline' => $data['current_title'] ?? $data['headline'] ?? $user->professional_headline,
-                ]
-            ]);
-        }
+                return response()->json([
+                    'message' => 'Profile data deduced with AI.',
+                    'deduced' => $deduced
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('AI Deduction error: ' . $e->getMessage());
+                return $fallback();
+            }
+        }, 'PublicProfileController@deduceFromCV');
     }
 
     /**
@@ -190,12 +183,14 @@ class PublicProfileController extends Controller
      */
     public function checkUsername(Request $request)
     {
-        $request->validate(['username' => 'required|string|min:3|max:30|regex:/^[a-z0-9\-]+$/']);
+        return $this->safeCall(function () use ($request) {
+            $request->validate(['username' => 'required|string|min:3|max:30|regex:/^[a-z0-9\-]+$/']);
 
-        $taken = User::where('username', $request->username)
-            ->where('id', '!=', $request->user()->id)
-            ->exists();
+            $taken = User::where('username', $request->username)
+                ->where('id', '!=', $request->user()->id)
+                ->exists();
 
-        return response()->json(['available' => !$taken]);
+            return response()->json(['available' => !$taken]);
+        }, 'PublicProfileController@checkUsername');
     }
 }

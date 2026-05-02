@@ -15,30 +15,32 @@ class GoogleAuthController extends Controller
 {
     public function redirect()
     {
-        $client = new Client();
-        $client->setClientId(config('services.google.client_id'));
-        $client->setClientSecret(config('services.google.client_secret'));
-        $client->setRedirectUri(config('services.google.redirect'));
-        $client->addScope(Gmail::GMAIL_READONLY);
-        $client->addScope(Oauth2::USERINFO_EMAIL);
-        $client->setAccessType('offline');
-        $client->setPrompt('select_account consent');
+        return $this->safeCall(function () {
+            $client = new Client();
+            $client->setClientId(config('services.google.client_id'));
+            $client->setClientSecret(config('services.google.client_secret'));
+            $client->setRedirectUri(config('services.google.redirect'));
+            $client->addScope(Gmail::GMAIL_READONLY);
+            $client->addScope(Oauth2::USERINFO_EMAIL);
+            $client->setAccessType('offline');
+            $client->setPrompt('select_account consent');
 
-        // Since we are using Sanctum (token-based), we need a way to identify the user
-        // when they return from the Google redirect. We'll use the 'state' parameter.
-        $client->setState(Auth::id());
+            $client->setState(Auth::id());
 
-        return response()->json([
-            'url' => $client->createAuthUrl()
-        ]);
+            return response()->json([
+                'url' => $client->createAuthUrl()
+            ]);
+        }, 'GoogleAuthController@redirect');
     }
 
     public function callback(Request $request)
     {
+        // This endpoint redirects to the FE with status flags rather than returning JSON,
+        // so we keep its bespoke try/catch and let the global handler still cover it.
         $code = $request->input('code');
 
         if (!$code) {
-             Log::error('Google Auth Sync Callback: No code provided');
+            Log::error('Google Auth Sync Callback: No code provided');
             return redirect(config('app.frontend_url') . '/dashboard/profile?error=no_code');
         }
 
@@ -60,7 +62,6 @@ class GoogleAuthController extends Controller
             $oauth2 = new Oauth2($client);
             $googleUser = $oauth2->userinfo->get();
 
-            // Try to get user from state if Auth::user() is null (common in Sanctum/API redirects)
             $userId = $request->input('state');
             $user = Auth::user() ?: \App\Models\User::find($userId);
 
@@ -69,7 +70,6 @@ class GoogleAuthController extends Controller
                 return redirect(config('app.frontend_url') . '/login?error=session_expired');
             }
 
-            // Use the model directly to avoid relationship caching issues
             \App\Models\GoogleAccount::updateOrCreate(
                 ['user_id' => $user->id],
                 [
@@ -81,10 +81,8 @@ class GoogleAuthController extends Controller
                 ]
             );
 
-
             return redirect(config('app.frontend_url') . '/dashboard/profile?success=google_connected');
-
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('Google Sync Callback Error: ' . $e->getMessage());
             return redirect(config('app.frontend_url') . '/dashboard/profile?error=exception');
         }
@@ -92,46 +90,47 @@ class GoogleAuthController extends Controller
 
     public function sync(Request $request)
     {
-        $account = Auth::user()->googleAccount;
-        if (!$account) {
-            return response()->json(['error' => 'No Google account connected'], 404);
-        }
+        return $this->safeCall(function () use ($request) {
+            $account = Auth::user()->googleAccount;
+            if (!$account) {
+                return response()->json(['error' => 'No Google account connected'], 404);
+            }
 
-        \App\Jobs\SyncGmailJob::dispatch($account);
+            \App\Jobs\SyncGmailJob::dispatch($account);
 
-        return response()->json([
-            'message' => 'Sync started in background', 
-            'last_synced_at' => $account->fresh()->last_synced_at
-        ]);
+            return response()->json([
+                'message' => 'Sync started in background',
+                'last_synced_at' => $account->fresh()->last_synced_at
+            ]);
+        }, 'GoogleAuthController@sync');
     }
 
     public function disconnect(Request $request)
     {
-        $user = $request->user();
-        $account = $user->googleAccount;
+        return $this->safeCall(function () use ($request) {
+            $user = $request->user();
+            $account = $user->googleAccount;
 
-        if ($account) {
-            try {
-                $client = new Client();
-                // Revoke refresh token if we have it, as it's the master key that allows long-term access.
-                // Google's revocation endpoint accepts either access_token or refresh_token.
-                $tokenToRevoke = $account->refresh_token ?: $account->access_token;
-                
-                if ($tokenToRevoke) {
-                    $client->revokeToken($tokenToRevoke);
+            if ($account) {
+                try {
+                    $client = new Client();
+                    $tokenToRevoke = $account->refresh_token ?: $account->access_token;
+
+                    if ($tokenToRevoke) {
+                        $client->revokeToken($tokenToRevoke);
+                    }
+                } catch (\Throwable $e) {
+                    Log::error('Google Token Revocation Failed: ' . $e->getMessage());
+                    // We proceed with deletion anyway to clear local state
                 }
-            } catch (\Exception $e) {
-                Log::error('Google Token Revocation Failed: ' . $e->getMessage());
-                // We proceed with deletion anyway to clear local state
+
+                $account->delete();
             }
 
-
-            $account->delete();
-        }
-
-        return response()->json([
-            'message' => 'Google account disconnected and access revoked.',
-            'user' => $user->fresh(['googleAccount', 'plan'])
-        ]);
+            return response()->json([
+                'message' => 'Google account disconnected and access revoked.',
+                'user' => $user->fresh(['googleAccount', 'plan'])
+            ]);
+        }, 'GoogleAuthController@disconnect');
     }
 }

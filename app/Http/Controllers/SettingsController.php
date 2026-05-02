@@ -22,43 +22,51 @@ class SettingsController extends Controller
 
     public function index()
     {
-        $this->ensureBillingSetting();
-        return response()->json(Setting::all());
+        return $this->safeCall(function () {
+            $this->ensureBillingSetting();
+            return response()->json(Setting::all());
+        }, 'SettingsController@index');
     }
 
     public function update(Request $request)
     {
-        $this->ensureBillingSetting();
+        return $this->safeCall(function () use ($request) {
+            $this->ensureBillingSetting();
 
-        $request->validate([
-            'settings' => 'required|array',
-            'settings.*.key' => 'required|exists:settings,key',
-            'settings.*.value' => 'required',
-        ]);
+            $request->validate([
+                'settings' => 'required|array',
+                'settings.*.key' => 'required|exists:settings,key',
+                'settings.*.value' => 'required',
+            ]);
 
-        foreach ($request->settings as $item) {
-            Setting::where('key', $item['key'])->update(['value' => $item['value']]);
-        }
+            foreach ($request->settings as $item) {
+                Setting::where('key', $item['key'])->update(['value' => $item['value']]);
+            }
 
-        return response()->json([
-            'message' => 'Settings updated successfully',
-            'settings' => Setting::all()
-        ]);
+            return response()->json([
+                'message' => 'Settings updated successfully',
+                'settings' => Setting::all()
+            ]);
+        }, 'SettingsController@update');
     }
 
     public function getGroup($group)
     {
-        return response()->json(Setting::where('group', $group)->get());
+        return $this->safeCall(function () use ($group) {
+            return response()->json(Setting::where('group', $group)->get());
+        }, 'SettingsController@getGroup');
     }
 
     public function billingStatus()
     {
-        $this->ensureBillingSetting();
+        return $this->safeCall(function () {
+            $this->ensureBillingSetting();
 
-        $enabled = Setting::getVal('billing_enabled', false);
+            $enabled = Setting::getVal('billing_enabled', false);
 
-        return response()->json([
-            'billing_enabled' => (bool) $enabled,
-        ]);
+            return response()->json([
+                'billing_enabled' => (bool) $enabled,
+            ]);
+        }, 'SettingsController@billingStatus');
     }
 }

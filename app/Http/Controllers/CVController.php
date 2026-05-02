@@ -22,73 +22,69 @@ class CVController extends Controller
      */
     public function upload(Request $request)
     {
-        $request->validate([
-            'cv' => 'required|file|mimes:pdf,txt,doc,docx|max:5120', // 5MB max
-        ]);
-
-        $file = $request->file('cv');
-        $extension = strtolower($file->getClientOriginalExtension());
-        $filename = $file->getClientOriginalName();
-
-        // Extract raw text based on file type
-        $rawText = '';
-
-        try {
-            if ($extension === 'txt') {
-                $rawText = file_get_contents($file->getRealPath());
-            } elseif ($extension === 'pdf') {
-                $rawText = $this->extractTextFromPDF($file->getRealPath());
-            } elseif (in_array($extension, ['doc', 'docx'])) {
-                $rawText = $this->extractTextFromDocx($file->getRealPath());
-            }
-        } catch (\Exception $e) {
-            Log::error('CV text extraction failed: ' . $e->getMessage());
-            return response()->json(['error' => 'Failed to read the file. Please try a different format.'], 422);
-        }
-
-        if (empty(trim($rawText))) {
-            return response()->json(['error' => 'Could not extract text from the file. Try uploading a TXT or a different PDF.'], 422);
-        }
-
-        // Store the file
-        $path = $file->store('cvs/' . $request->user()->id, 'local');
-
-        // Set all existing CVs to inactive
-        UserProfile::where('user_id', $request->user()->id)->update(['is_active' => false]);
-
-        // Save raw text as a new CV
-        $profile = UserProfile::create([
-            'user_id' => $request->user()->id,
-            'cv_filename' => $filename,
-            'profile_name' => pathinfo($filename, PATHINFO_FILENAME),
-            'cv_raw_text' => $rawText,
-            'is_active' => true,
-        ]);
-
-        // Parse with AI
-        $parsedData = $this->parseWithAI($rawText);
-
-        if ($parsedData) {
-            $profile->update([
-                'parsed_data' => $parsedData,
-                'parsed_at' => now(),
+        return $this->safeCall(function () use ($request) {
+            $request->validate([
+                'cv' => 'required|file|mimes:pdf,txt,doc,docx|max:5120',
             ]);
-        }
 
-        // Send Notification
-        $request->user()->notify(new GenericNotification(
-            'CV Uploaded',
-            'AI has successfully analyzed and parsed your resume.',
-            'info',
-            '/dashboard/profile'
-        ));
+            $file = $request->file('cv');
+            $extension = strtolower($file->getClientOriginalExtension());
+            $filename = $file->getClientOriginalName();
 
-        return response()->json([
-            'message' => 'CV uploaded and parsed successfully.',
-            'filename' => $filename,
-            'parsed' => !empty($parsedData),
-            'profile' => $profile->fresh(),
-        ]);
+            $rawText = '';
+
+            try {
+                if ($extension === 'txt') {
+                    $rawText = file_get_contents($file->getRealPath());
+                } elseif ($extension === 'pdf') {
+                    $rawText = $this->extractTextFromPDF($file->getRealPath());
+                } elseif (in_array($extension, ['doc', 'docx'])) {
+                    $rawText = $this->extractTextFromDocx($file->getRealPath());
+                }
+            } catch (\Throwable $e) {
+                Log::error('CV text extraction failed: ' . $e->getMessage());
+                return response()->json(['error' => 'Failed to read the file. Please try a different format.'], 422);
+            }
+
+            if (empty(trim($rawText))) {
+                return response()->json(['error' => 'Could not extract text from the file. Try uploading a TXT or a different PDF.'], 422);
+            }
+
+            $path = $file->store('cvs/' . $request->user()->id, 'local');
+
+            UserProfile::where('user_id', $request->user()->id)->update(['is_active' => false]);
+
+            $profile = UserProfile::create([
+                'user_id' => $request->user()->id,
+                'cv_filename' => $filename,
+                'profile_name' => pathinfo($filename, PATHINFO_FILENAME),
+                'cv_raw_text' => $rawText,
+                'is_active' => true,
+            ]);
+
+            $parsedData = $this->parseWithAI($rawText);
+
+            if ($parsedData) {
+                $profile->update([
+                    'parsed_data' => $parsedData,
+                    'parsed_at' => now(),
+                ]);
+            }
+
+            $request->user()->notify(new GenericNotification(
+                'CV Uploaded',
+                'AI has successfully analyzed and parsed your resume.',
+                'info',
+                '/dashboard/profile'
+            ));
+
+            return response()->json([
+                'message' => 'CV uploaded and parsed successfully.',
+                'filename' => $filename,
+                'parsed' => !empty($parsedData),
+                'profile' => $profile->fresh(),
+            ]);
+        }, 'CVController@upload');
     }
 
     /**
@@ -96,30 +92,32 @@ class CVController extends Controller
      */
     public function show(Request $request)
     {
-        $profiles = UserProfile::where('user_id', $request->user()->id)
-            ->orderBy('created_at', 'desc')
-            ->get();
+        return $this->safeCall(function () use ($request) {
+            $profiles = UserProfile::where('user_id', $request->user()->id)
+                ->orderBy('created_at', 'desc')
+                ->get();
 
-        $activeProfile = $profiles->where('is_active', true)->first() ?? $profiles->first();
+            $activeProfile = $profiles->where('is_active', true)->first() ?? $profiles->first();
 
-        return response()->json([
-            'has_cv' => $profiles->isNotEmpty(),
-            'filename' => $activeProfile ? $activeProfile->cv_filename : null,
-            'profile_name' => $activeProfile ? $activeProfile->profile_name : null,
-            'parsed_data' => $activeProfile ? $activeProfile->parsed_data : null,
-            'is_active' => $activeProfile ? (bool)$activeProfile->is_active : false,
-            'cvs' => $profiles->map(function ($profile) {
-                return [
-                    'id' => $profile->id,
-                    'filename' => $profile->cv_filename,
-                    'profile_name' => $profile->profile_name,
-                    'parsed_data' => $profile->parsed_data,
-                    'is_active' => $profile->is_active,
-                    'parsed_at' => $profile->parsed_at,
-                    'created_at' => $profile->created_at,
-                ];
-            })
-        ]);
+            return response()->json([
+                'has_cv' => $profiles->isNotEmpty(),
+                'filename' => $activeProfile ? $activeProfile->cv_filename : null,
+                'profile_name' => $activeProfile ? $activeProfile->profile_name : null,
+                'parsed_data' => $activeProfile ? $activeProfile->parsed_data : null,
+                'is_active' => $activeProfile ? (bool) $activeProfile->is_active : false,
+                'cvs' => $profiles->map(function ($profile) {
+                    return [
+                        'id' => $profile->id,
+                        'filename' => $profile->cv_filename,
+                        'profile_name' => $profile->profile_name,
+                        'parsed_data' => $profile->parsed_data,
+                        'is_active' => $profile->is_active,
+                        'parsed_at' => $profile->parsed_at,
+                        'created_at' => $profile->created_at,
+                    ];
+                })
+            ]);
+        }, 'CVController@show');
     }
 
     /**
@@ -127,34 +125,35 @@ class CVController extends Controller
      */
     public function autofill(Request $request)
     {
-        $request->validate([
-            'fields' => 'required|array',
-            'fields.*.id' => 'required|string',
-            'fields.*.label' => 'nullable|string',
-            'fields.*.type' => 'nullable|string',
-            'fields.*.placeholder' => 'nullable|string',
-            'fields.*.options' => 'nullable|array',
-            'job_context' => 'nullable|string',
-        ]);
+        return $this->safeCall(function () use ($request) {
+            $request->validate([
+                'fields' => 'required|array',
+                'fields.*.id' => 'required|string',
+                'fields.*.label' => 'nullable|string',
+                'fields.*.type' => 'nullable|string',
+                'fields.*.placeholder' => 'nullable|string',
+                'fields.*.options' => 'nullable|array',
+                'job_context' => 'nullable|string',
+            ]);
 
-        $profile = UserProfile::where('user_id', $request->user()->id)
-            ->where('is_active', true)
-            ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('is_active', true)
+                ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
 
-        if (!$profile || !$profile->parsed_data) {
-            return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
-        }
+            if (!$profile || !$profile->parsed_data) {
+                return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
+            }
 
-        if (!$this->aiChatService->isConfigured()) {
-            return response()->json(['error' => 'AI key not configured.'], 500);
-        }
+            if (!$this->aiChatService->isConfigured()) {
+                Log::error('Autofill: AI not configured.');
+                return $this->genericServerErrorResponse();
+            }
 
-        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
-        $rawCvText = substr($profile->cv_raw_text ?? '', 0, 3000);
-        $fieldsData = json_encode($request->fields, JSON_PRETTY_PRINT);
-        $jobContext = $request->job_context ?? 'Not specified';
+            $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+            $rawCvText = substr($profile->cv_raw_text ?? '', 0, 3000);
+            $fieldsData = json_encode($request->fields, JSON_PRETTY_PRINT);
+            $jobContext = $request->job_context ?? 'Not specified';
 
-        try {
             $result = $this->aiChatService->chatJson([
                 [
                     'role' => 'system',
@@ -182,11 +181,7 @@ CRITICAL RULES:
                 'success' => true,
                 'filled_fields' => $filled,
             ]);
-
-        } catch (\Exception $e) {
-            Log::error('Autofill exception: ' . $e->getMessage());
-            return response()->json(['error' => 'AI service unavailable.'], 500);
-        }
+        }, 'CVController@autofill');
     }
 
     /**
@@ -194,39 +189,40 @@ CRITICAL RULES:
      */
     public function matchScore(Request $request)
     {
-        $request->validate([
-            'job_title' => 'required|string',
-            'job_context' => 'required|string',
-        ]);
+        return $this->safeCall(function () use ($request) {
+            $request->validate([
+                'job_title' => 'required|string',
+                'job_context' => 'required|string',
+            ]);
 
-        $profile = UserProfile::where('user_id', $request->user()->id)
-            ->where('is_active', true)
-            ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('is_active', true)
+                ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
 
-        if (!$profile || !$profile->parsed_data) {
-            return response()->json(['error' => 'No active CV data found.'], 422);
-        }
+            if (!$profile || !$profile->parsed_data) {
+                return response()->json(['error' => 'No active CV data found.'], 422);
+            }
 
-        $cost = Setting::getVal('credit_cost_match_score', 1);
-        $user = $request->user();
+            $cost = Setting::getVal('credit_cost_match_score', 1);
+            $user = $request->user();
 
-        if (!$user->hasCredits($cost)) {
-            return response()->json([
-                'error' => 'Not enough AI credits.',
-                'required' => $cost,
-                'available' => $user->credits ?? 0
-            ], 402);
-        }
+            if (!$user->hasCredits($cost)) {
+                return response()->json([
+                    'error' => 'Not enough AI credits.',
+                    'required' => $cost,
+                    'available' => $user->credits ?? 0
+                ], 402);
+            }
 
-        if (!$this->aiChatService->isConfigured()) {
-            return response()->json(['error' => 'AI key not configured.'], 500);
-        }
+            if (!$this->aiChatService->isConfigured()) {
+                Log::error('Match score: AI not configured.');
+                return $this->genericServerErrorResponse();
+            }
 
-        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
-        $jobTitle = $request->job_title;
-        $jobContext = $request->job_context;
+            $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+            $jobTitle = $request->job_title;
+            $jobContext = $request->job_context;
 
-        try {
             $aiResult = $this->aiChatService->chatJson([
                 [
                     'role' => 'system',
@@ -241,11 +237,7 @@ CRITICAL RULES:
             $user->deductCredits($cost, "Match Analysis: {$jobTitle} at {$request->company}");
             $result = json_decode($aiResult['content'], true);
             return response()->json($result);
-
-        } catch (\Exception $e) {
-            Log::error('Match score exception: ' . $e->getMessage());
-            return response()->json(['error' => 'AI service unavailable.'], 500);
-        }
+        }, 'CVController@matchScore');
     }
 
     /**
@@ -253,32 +245,33 @@ CRITICAL RULES:
      */
     public function generateBios(Request $request)
     {
-        $profile = UserProfile::where('user_id', $request->user()->id)
-            ->where('is_active', true)
-            ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+        return $this->safeCall(function () use ($request) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('is_active', true)
+                ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
 
-        if (!$profile || !$profile->parsed_data) {
-            return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
-        }
+            if (!$profile || !$profile->parsed_data) {
+                return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
+            }
 
-        $cost = Setting::getVal('credit_cost_social_bios', 3);
-        $user = $request->user();
+            $cost = Setting::getVal('credit_cost_social_bios', 3);
+            $user = $request->user();
 
-        if (!$user->hasCredits($cost)) {
-            return response()->json([
-                'error' => 'Not enough AI credits.',
-                'required' => $cost,
-                'available' => $user->credits ?? 0
-            ], 402);
-        }
+            if (!$user->hasCredits($cost)) {
+                return response()->json([
+                    'error' => 'Not enough AI credits.',
+                    'required' => $cost,
+                    'available' => $user->credits ?? 0
+                ], 402);
+            }
 
-        if (!$this->aiChatService->isConfigured()) {
-            return response()->json(['error' => 'AI key not configured.'], 500);
-        }
+            if (!$this->aiChatService->isConfigured()) {
+                Log::error('Bio generation: AI not configured.');
+                return $this->genericServerErrorResponse();
+            }
 
-        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+            $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
 
-        try {
             $aiResult = $this->aiChatService->chatJson([
                 [
                     'role' => 'system',
@@ -293,11 +286,7 @@ CRITICAL RULES:
             $user->deductCredits($cost, "Social Bio Generation for Profile");
             $result = json_decode($aiResult['content'], true);
             return response()->json($result);
-
-        } catch (\Exception $e) {
-            Log::error('Bio generation exception: ' . $e->getMessage());
-            return response()->json(['error' => 'AI service unavailable.'], 500);
-        }
+        }, 'CVController@generateBios');
     }
 
     /**
@@ -305,47 +294,48 @@ CRITICAL RULES:
      */
     public function refactorResume(Request $request)
     {
-        $request->validate([
-            'job_description' => 'required|string',
-            'cv_id' => 'nullable|string',
-        ]);
+        return $this->safeCall(function () use ($request) {
+            $request->validate([
+                'job_description' => 'required|string',
+                'cv_id' => 'nullable|string',
+            ]);
 
-        $profile = null;
-        if ($request->cv_id) {
-            $profile = UserProfile::where('user_id', $request->user()->id)
-                ->where('id', $request->cv_id)
-                ->first();
-        }
+            $profile = null;
+            if ($request->cv_id) {
+                $profile = UserProfile::where('user_id', $request->user()->id)
+                    ->where('id', $request->cv_id)
+                    ->first();
+            }
 
-        if (!$profile) {
-            $profile = UserProfile::where('user_id', $request->user()->id)
-                ->where('is_active', true)
-                ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
-        }
+            if (!$profile) {
+                $profile = UserProfile::where('user_id', $request->user()->id)
+                    ->where('is_active', true)
+                    ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+            }
 
-        if (!$profile || !$profile->parsed_data) {
-            return response()->json(['error' => 'No active CV data found.'], 422);
-        }
+            if (!$profile || !$profile->parsed_data) {
+                return response()->json(['error' => 'No active CV data found.'], 422);
+            }
 
-        $cost = Setting::getVal('credit_cost_cv_optimization', 5);
-        $user = $request->user();
+            $cost = Setting::getVal('credit_cost_cv_optimization', 5);
+            $user = $request->user();
 
-        if (!$user->hasCredits($cost)) {
-            return response()->json([
-                'error' => 'Not enough AI credits.',
-                'required' => $cost,
-                'available' => $user->credits ?? 0
-            ], 402);
-        }
+            if (!$user->hasCredits($cost)) {
+                return response()->json([
+                    'error' => 'Not enough AI credits.',
+                    'required' => $cost,
+                    'available' => $user->credits ?? 0
+                ], 402);
+            }
 
-        if (!$this->aiChatService->isConfigured()) {
-            return response()->json(['error' => 'AI key not configured.'], 500);
-        }
+            if (!$this->aiChatService->isConfigured()) {
+                Log::error('Resume refactor: AI not configured.');
+                return $this->genericServerErrorResponse();
+            }
 
-        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
-        $jobDescription = $request->job_description;
+            $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+            $jobDescription = $request->job_description;
 
-        try {
             $aiResult = $this->aiChatService->chatJson([
                 [
                     'role' => 'system',
@@ -360,74 +350,69 @@ CRITICAL RULES:
             $user->deductCredits($cost, "Resume Architect: Optimized for Job Description");
             $result = json_decode($aiResult['content'], true);
             return response()->json($result);
-
-        } catch (\Exception $e) {
-            Log::error('Resume refactor exception: ' . $e->getMessage());
-            return response()->json(['error' => 'AI service unavailable.'], 500);
-        }
+        }, 'CVController@refactorResume');
     }
 
     /**
      * Store a refactored and manually edited CV.
-     * This allows the user to save their polished version back to the dashboard.
      */
     public function storeRefactored(Request $request)
     {
-        $request->validate([
-            'resume_data' => 'required|array',
-            'profile_name' => 'required|string|max:255',
-        ]);
+        return $this->safeCall(function () use ($request) {
+            $request->validate([
+                'resume_data' => 'required|array',
+                'profile_name' => 'required|string|max:255',
+            ]);
 
-        $data = $request->resume_data;
+            $data = $request->resume_data;
 
-        // Deactivate existing
-        UserProfile::where('user_id', $request->user()->id)->update(['is_active' => false]);
+            UserProfile::where('user_id', $request->user()->id)->update(['is_active' => false]);
 
-        // Create or Update profile from optimized data
-        $profile = null;
-        if ($request->cv_id) {
-            $profile = UserProfile::where('user_id', $request->user()->id)
-                ->where('id', $request->cv_id)
-                ->first();
-        }
+            $profile = null;
+            if ($request->cv_id) {
+                $profile = UserProfile::where('user_id', $request->user()->id)
+                    ->where('id', $request->cv_id)
+                    ->first();
+            }
 
-        $profileData = [
-            'user_id' => $request->user()->id,
-            'cv_filename' => 'optimized_resume.json',
-            'profile_name' => $request->profile_name,
-            'cv_raw_text' => $data['summary'] ?? '',
-            'parsed_data' => [
-                'full_name' => $data['fullName'] ?? '',
-                'email' => $data['email'] ?? '',
-                'phone' => $data['phone'] ?? '',
-                'location' => $data['location'] ?? '',
-                'links' => $data['links'] ?? [],
-                'summary' => $data['summary'] ?? '',
-                'skills' => $data['skills'] ?? [],
-                'work_experience' => array_map(function ($exp) {
-                    return [
-                        'company' => $exp['company'],
-                        'title' => $exp['title'],
-                        'duration' => $exp['duration'] ?? '',
-                        'description' => implode("\n", $exp['bullets'] ?? [])
-                    ];
-                }, $data['experience'] ?? []),
-                'custom_sections' => $data['customSections'] ?? []
-            ],
-            'parsed_at' => now(),
-            'is_active' => true,
-        ];
+            $profileData = [
+                'user_id' => $request->user()->id,
+                'cv_filename' => 'optimized_resume.json',
+                'profile_name' => $request->profile_name,
+                'cv_raw_text' => $data['summary'] ?? '',
+                'parsed_data' => [
+                    'full_name' => $data['fullName'] ?? '',
+                    'email' => $data['email'] ?? '',
+                    'phone' => $data['phone'] ?? '',
+                    'location' => $data['location'] ?? '',
+                    'links' => $data['links'] ?? [],
+                    'summary' => $data['summary'] ?? '',
+                    'skills' => $data['skills'] ?? [],
+                    'work_experience' => array_map(function ($exp) {
+                        return [
+                            'company' => $exp['company'],
+                            'title' => $exp['title'],
+                            'duration' => $exp['duration'] ?? '',
+                            'description' => implode("\n", $exp['bullets'] ?? [])
+                        ];
+                    }, $data['experience'] ?? []),
+                    'custom_sections' => $data['customSections'] ?? []
+                ],
+                'parsed_at' => now(),
+                'is_active' => true,
+            ];
 
-        if ($profile) {
-            $profile->update($profileData);
-        } else {
-            $profile = UserProfile::create($profileData);
-        }
+            if ($profile) {
+                $profile->update($profileData);
+            } else {
+                $profile = UserProfile::create($profileData);
+            }
 
-        return response()->json([
-            'message' => 'Optimized resume saved to dashboard!',
-            'profile' => $profile
-        ]);
+            return response()->json([
+                'message' => 'Optimized resume saved to dashboard!',
+                'profile' => $profile
+            ]);
+        }, 'CVController@storeRefactored');
     }
 
     /**
@@ -435,47 +420,48 @@ CRITICAL RULES:
      */
     public function generateProposal(Request $request)
     {
-        $request->validate([
-            'job_description' => 'required|string',
-            'cv_id' => 'nullable|string',
-        ]);
+        return $this->safeCall(function () use ($request) {
+            $request->validate([
+                'job_description' => 'required|string',
+                'cv_id' => 'nullable|string',
+            ]);
 
-        $profile = null;
-        if ($request->cv_id) {
-            $profile = UserProfile::where('user_id', $request->user()->id)
-                ->where('id', $request->cv_id)
-                ->first();
-        }
+            $profile = null;
+            if ($request->cv_id) {
+                $profile = UserProfile::where('user_id', $request->user()->id)
+                    ->where('id', $request->cv_id)
+                    ->first();
+            }
 
-        if (!$profile) {
-            $profile = UserProfile::where('user_id', $request->user()->id)
-                ->where('is_active', true)
-                ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
-        }
+            if (!$profile) {
+                $profile = UserProfile::where('user_id', $request->user()->id)
+                    ->where('is_active', true)
+                    ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+            }
 
-        if (!$profile || !$profile->parsed_data) {
-            return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
-        }
+            if (!$profile || !$profile->parsed_data) {
+                return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
+            }
 
-        $cost = Setting::getVal('credit_cost_proposal_generation', 2);
-        $user = $request->user();
+            $cost = Setting::getVal('credit_cost_proposal_generation', 2);
+            $user = $request->user();
 
-        if (!$user->hasCredits($cost)) {
-            return response()->json([
-                'error' => 'Not enough AI credits.',
-                'required' => $cost,
-                'available' => $user->credits ?? 0
-            ], 402);
-        }
+            if (!$user->hasCredits($cost)) {
+                return response()->json([
+                    'error' => 'Not enough AI credits.',
+                    'required' => $cost,
+                    'available' => $user->credits ?? 0
+                ], 402);
+            }
 
-        if (!$this->aiChatService->isConfigured()) {
-            return response()->json(['error' => 'AI key not configured.'], 500);
-        }
+            if (!$this->aiChatService->isConfigured()) {
+                Log::error('Proposal generation: AI not configured.');
+                return $this->genericServerErrorResponse();
+            }
 
-        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
-        $jobDescription = $request->job_description;
+            $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+            $jobDescription = $request->job_description;
 
-        try {
             $aiResult = $this->aiChatService->chatJson([
                 [
                     'role' => 'system',
@@ -499,60 +485,56 @@ CRITICAL SUCCESS FACTORS:
             $user->deductCredits($cost, "High-Impact Proposal Generation");
             $result = json_decode($aiResult['content'], true);
             return response()->json($result);
-
-        } catch (\Exception $e) {
-            Log::error('Proposal generation exception: ' . $e->getMessage());
-            return response()->json(['error' => 'AI service unavailable.'], 500);
-        }
+        }, 'CVController@generateProposal');
     }
-
 
     /**
      * Interview Prep: Generates interview questions and suggested answers.
      */
     public function generateInterviewPrep(Request $request)
     {
-        $request->validate([
-            'job_description' => 'required|string|min:20|max:20000',
-            'cv_id' => 'nullable|string',
-        ]);
+        return $this->safeCall(function () use ($request) {
+            $request->validate([
+                'job_description' => 'required|string|min:20|max:20000',
+                'cv_id' => 'nullable|string',
+            ]);
 
-        $profile = null;
-        if ($request->cv_id) {
-            $profile = UserProfile::where('user_id', $request->user()->id)
-                ->where('id', $request->cv_id)
-                ->first();
-        }
+            $profile = null;
+            if ($request->cv_id) {
+                $profile = UserProfile::where('user_id', $request->user()->id)
+                    ->where('id', $request->cv_id)
+                    ->first();
+            }
 
-        if (!$profile) {
-            $profile = UserProfile::where('user_id', $request->user()->id)
-                ->where('is_active', true)
-                ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
-        }
+            if (!$profile) {
+                $profile = UserProfile::where('user_id', $request->user()->id)
+                    ->where('is_active', true)
+                    ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+            }
 
-        if (!$profile || !$profile->parsed_data) {
-            return response()->json(['error' => 'No active CV data found.'], 422);
-        }
+            if (!$profile || !$profile->parsed_data) {
+                return response()->json(['error' => 'No active CV data found.'], 422);
+            }
 
-        $cost = Setting::getVal('credit_cost_interview_prep', 10);
-        $user = $request->user();
+            $cost = Setting::getVal('credit_cost_interview_prep', 10);
+            $user = $request->user();
 
-        if (!$user->hasCredits($cost)) {
-            return response()->json([
-                'error' => 'Not enough AI credits.',
-                'required' => $cost,
-                'available' => $user->credits ?? 0
-            ], 402);
-        }
+            if (!$user->hasCredits($cost)) {
+                return response()->json([
+                    'error' => 'Not enough AI credits.',
+                    'required' => $cost,
+                    'available' => $user->credits ?? 0
+                ], 402);
+            }
 
-        if (!$this->aiChatService->isConfigured()) {
-            return response()->json(['error' => 'AI key not configured.'], 500);
-        }
+            if (!$this->aiChatService->isConfigured()) {
+                Log::error('Interview prep: AI not configured.');
+                return $this->genericServerErrorResponse();
+            }
 
-        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
-        $jobDescription = $request->job_description;
+            $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+            $jobDescription = $request->job_description;
 
-        try {
             $aiResult = $this->aiChatService->chatJson([
                 [
                     'role' => 'system',
@@ -635,11 +617,7 @@ Return ONLY valid JSON. No markdown fences, no text outside JSON."
                     'credit_cost' => $cost,
                 ],
             ]);
-
-        } catch (\Exception $e) {
-            Log::error('Interview prep exception: ' . $e->getMessage());
-            return response()->json(['error' => 'AI service unavailable.'], 500);
-        }
+        }, 'CVController@generateInterviewPrep');
     }
 
     /**
@@ -647,47 +625,48 @@ Return ONLY valid JSON. No markdown fences, no text outside JSON."
      */
     public function generateCoverLetter(Request $request)
     {
-        $request->validate([
-            'job_description' => 'required|string',
-            'cv_id' => 'nullable|string',
-        ]);
+        return $this->safeCall(function () use ($request) {
+            $request->validate([
+                'job_description' => 'required|string',
+                'cv_id' => 'nullable|string',
+            ]);
 
-        $profile = null;
-        if ($request->cv_id) {
-            $profile = UserProfile::where('user_id', $request->user()->id)
-                ->where('id', $request->cv_id)
-                ->first();
-        }
+            $profile = null;
+            if ($request->cv_id) {
+                $profile = UserProfile::where('user_id', $request->user()->id)
+                    ->where('id', $request->cv_id)
+                    ->first();
+            }
 
-        if (!$profile) {
-            $profile = UserProfile::where('user_id', $request->user()->id)
-                ->where('is_active', true)
-                ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
-        }
+            if (!$profile) {
+                $profile = UserProfile::where('user_id', $request->user()->id)
+                    ->where('is_active', true)
+                    ->first() ?? UserProfile::where('user_id', $request->user()->id)->latest()->first();
+            }
 
-        if (!$profile || !$profile->parsed_data) {
-            return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
-        }
+            if (!$profile || !$profile->parsed_data) {
+                return response()->json(['error' => 'No active CV data found. Please upload a CV first.'], 422);
+            }
 
-        $cost = Setting::getVal('credit_cost_cover_letter', 5);
-        $user = $request->user();
+            $cost = Setting::getVal('credit_cost_cover_letter', 5);
+            $user = $request->user();
 
-        if (!$user->hasCredits($cost)) {
-            return response()->json([
-                'error' => 'Not enough AI credits.',
-                'required' => $cost,
-                'available' => $user->credits ?? 0
-            ], 402);
-        }
+            if (!$user->hasCredits($cost)) {
+                return response()->json([
+                    'error' => 'Not enough AI credits.',
+                    'required' => $cost,
+                    'available' => $user->credits ?? 0
+                ], 402);
+            }
 
-        if (!$this->aiChatService->isConfigured()) {
-            return response()->json(['error' => 'AI key not configured.'], 500);
-        }
+            if (!$this->aiChatService->isConfigured()) {
+                Log::error('Cover letter: AI not configured.');
+                return $this->genericServerErrorResponse();
+            }
 
-        $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
-        $jobDescription = $request->job_description;
+            $cvData = json_encode($profile->parsed_data, JSON_PRETTY_PRINT);
+            $jobDescription = $request->job_description;
 
-        try {
             $aiResult = $this->aiChatService->chatJson([
                 [
                     'role' => 'system',
@@ -714,11 +693,7 @@ CRITICAL GUIDELINES:
             $user->deductCredits($cost, "Professional Cover Letter Generation");
             $result = json_decode($aiResult['content'], true);
             return response()->json($result);
-
-        } catch (\Exception $e) {
-            Log::error('Cover letter exception: ' . $e->getMessage());
-            return response()->json(['error' => 'AI service unavailable.'], 500);
-        }
+        }, 'CVController@generateCoverLetter');
     }
 
     /**
@@ -726,21 +701,22 @@ CRITICAL GUIDELINES:
      */
     public function destroy(Request $request, $id)
     {
-        $profile = UserProfile::where('user_id', $request->user()->id)
-            ->where('id', $id)
-            ->firstOrFail();
+        return $this->safeCall(function () use ($request, $id) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('id', $id)
+                ->firstOrFail();
 
-        $profile->delete();
+            $profile->delete();
 
-        // If the deleted one was active, activate the most recent remaining one
-        if ($profile->is_active) {
-            $latest = UserProfile::where('user_id', $request->user()->id)->latest()->first();
-            if ($latest) {
-                $latest->update(['is_active' => true]);
+            if ($profile->is_active) {
+                $latest = UserProfile::where('user_id', $request->user()->id)->latest()->first();
+                if ($latest) {
+                    $latest->update(['is_active' => true]);
+                }
             }
-        }
 
-        return response()->json(['message' => 'CV deleted.']);
+            return response()->json(['message' => 'CV deleted.']);
+        }, 'CVController@destroy');
     }
 
     /**
@@ -748,14 +724,16 @@ CRITICAL GUIDELINES:
      */
     public function activate(Request $request, $id)
     {
-        $profile = UserProfile::where('user_id', $request->user()->id)
-            ->where('id', $id)
-            ->firstOrFail();
+        return $this->safeCall(function () use ($request, $id) {
+            $profile = UserProfile::where('user_id', $request->user()->id)
+                ->where('id', $id)
+                ->firstOrFail();
 
-        UserProfile::where('user_id', $request->user()->id)->update(['is_active' => false]);
-        $profile->update(['is_active' => true]);
+            UserProfile::where('user_id', $request->user()->id)->update(['is_active' => false]);
+            $profile->update(['is_active' => true]);
 
-        return response()->json(['message' => 'CV activated.']);
+            return response()->json(['message' => 'CV activated.']);
+        }, 'CVController@activate');
     }
 
     // ========================================
@@ -769,12 +747,11 @@ CRITICAL GUIDELINES:
             $pdf = $parser->parseFile($path);
             $text = $pdf->getText();
 
-            // Clean up common artifacts
             $text = preg_replace('/\s+/', ' ', $text);
             $text = preg_replace('/\n{3,}/', "\n\n", $text);
 
             return trim($text);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('PDF parse error: ' . $e->getMessage());
             return '';
         }
@@ -784,19 +761,15 @@ CRITICAL GUIDELINES:
     {
         $text = '';
 
-        // DOCX is a ZIP file containing XML
         $zip = new \ZipArchive();
         if ($zip->open($path) === true) {
-            // Main content is in word/document.xml
             $xmlContent = $zip->getFromName('word/document.xml');
             $zip->close();
 
             if ($xmlContent) {
-                // Strip XML tags but preserve paragraph breaks
                 $xmlContent = str_replace('</w:p>', "\n", $xmlContent);
                 $xmlContent = str_replace('</w:r>', ' ', $xmlContent);
                 $text = strip_tags($xmlContent);
-                // Clean up whitespace
                 $text = preg_replace('/[ \t]+/', ' ', $text);
                 $text = preg_replace('/\n\s*\n/', "\n", $text);
             }
@@ -812,7 +785,6 @@ CRITICAL GUIDELINES:
     {
         if (!$this->aiChatService->isConfigured()) return null;
 
-        // Truncate to reasonable length for the API
         $snippet = substr($rawText, 0, 6000);
 
         try {
@@ -830,8 +802,7 @@ CRITICAL GUIDELINES:
             $parsed = json_decode($result['content'], true);
             Log::info('CV parsed successfully with AI', ['provider' => $result['provider']]);
             return $parsed;
-
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('CV parse exception: ' . $e->getMessage());
             return null;
         }
