@@ -339,11 +339,23 @@ CRITICAL RULES:
             $aiResult = $this->aiChatService->chatJson([
                 [
                     'role' => 'system',
-                    'content' => 'You are an expert career coach and professional resume writer. Your goal is to help candidates refactor their resume to perfectly match a specific job description. Provide actionable, high-impact suggestions.'
+                    'content' => "You are acting as a senior hiring manager AND professional resume writer for the exact role described in the job description. Your job is to review the candidate's CV and rewrite it so it:
+
+1. HIGHLIGHTS MEASURABLE IMPACT: Every bullet must lead with a strong action verb and, wherever the source data supports it, include a number, %, scale, time saved, revenue, users, or business outcome. If the source bullet is vague, infer a reasonable, defensible metric from context — never fabricate companies, titles, or dates.
+2. REMOVES FLUFF: Strip filler phrases (\"responsible for\", \"helped with\", \"team player\", \"hard worker\", \"passionate about\", \"results-driven\", \"detail-oriented\", \"synergy\", \"go-getter\"). Replace passive voice with active voice. Cut adjectives that don't earn their place.
+3. ALIGNS WITH ATS STANDARDS: Mirror exact keywords, tools, and phrases from the job description (skills, methodologies, certifications, seniority signals). Use standard, parseable section names. Avoid tables, columns, graphics, or symbols an ATS can't read. Use plain bullets (•) and standard date formats.
+4. ROLE-AWARE LENS: First infer the target role and seniority from the job description (e.g. UX Designer, Senior Backend Engineer, PM). Then evaluate the CV through the lens of a hiring manager for THAT role — what would they cut, what would they amplify, what proof would they demand?
+5. SUGGESTS IMPROVEMENTS PER SECTION: For each section you touch, do not just rewrite — also explain in 'strategic_advice' the highest-leverage changes the candidate should make next (gaps to close, sections to add, evidence to gather).
+
+PRESERVATION RULES (non-negotiable):
+- Preserve ALL links exactly as given (GitHub, Portfolio, LinkedIn, project URLs, demo links).
+- Preserve real employer names, real job titles, real dates, real degrees. Never invent.
+- For any 'Projects' section, format each project as bullet lines starting with •, and keep any URLs inline.
+- Dynamically discover and optimize every meaningful section in the source (Education, Certifications, Awards, Publications, Volunteer, etc.) — do not drop a section just because it wasn't in a template."
                 ],
                 [
                     'role' => 'user',
-                    'content' => "Current CV data:\n{$cvData}\n\nPlease perform a deep analysis and provide a refactored version of the ENTIRE resume to match this Target Job Description:\n{$jobDescription}\n\nCRITICAL INSTRUCTIONS:\n1. PRESERVE ALL LINKS: If there are GitHub, Portfolio, LinkedIn, or Project-specific URLs in the original CV, they MUST be included in the refactored version exactly as they are.\n2. BULLET POINTS FOR PROJECTS: For any 'Projects' section (or similar), format each project as a list where each detail is an explicit line starting with a bullet point (•).\n3. DYNAMIC DISCOVERY: Identify and optimize all important sections from the source (Education, Certifications, Awards, etc.).\n\nRespond strictly in JSON format:\n{\n  \"optimized_summary\": \"Tailored 3-4 sentence professional summary.\",\n  \"key_skills_to_highlight\": [\"Skill 1\", \"Skill 2\", \"etc...\"],\n  \"experience_optimization\": [\n    {\n      \"company\": \"...\",\n      \"original_title\": \"...\",\n      \"tailored_bullets\": [\"Bullet rewritten for impact with keywords\"]\n    }\n  ],\n  \"additional_sections\": [\n    { \"title\": \"Education\", \"content\": \"Condensed education info...\" },\n    { \"title\": \"Projects\", \"content\": \"• Developed [X] using [Y] (link: [URL])\\n• Achieved [Result]...\" },\n    { \"title\": \"Certifications\", \"content\": \"• [Cert Name] - [Issuer]\" }\n  ],\n  \"strategic_advice\": \"One short paragraph of coaching advice for this role.\"\n}"
+                    'content' => "Current CV data:\n{$cvData}\n\nTarget Job Description:\n{$jobDescription}\n\nReview this CV as the hiring manager for the role described above and rewrite the ENTIRE resume to highlight measurable impact, remove fluff, and align with ATS standards for this specific role. For each section, suggest concrete improvements.\n\nRespond strictly in JSON format:\n{\n  \"optimized_summary\": \"Tailored 3-4 sentence professional summary written in the candidate's voice, front-loaded with role-fit keywords and one quantified proof point.\",\n  \"key_skills_to_highlight\": [\"Skill 1\", \"Skill 2\", \"etc — pulled from the JD and present (or defensibly adjacent) in the CV\"],\n  \"experience_optimization\": [\n    {\n      \"company\": \"...\",\n      \"original_title\": \"...\",\n      \"tailored_bullets\": [\"Action verb + what you did + measurable outcome + tool/keyword from JD\"]\n    }\n  ],\n  \"additional_sections\": [\n    { \"title\": \"Education\", \"content\": \"Condensed education info...\" },\n    { \"title\": \"Projects\", \"content\": \"• Built [X] using [Y] — [measurable result] (link: [URL])\\n• ...\" },\n    { \"title\": \"Certifications\", \"content\": \"• [Cert Name] — [Issuer], [Year]\" }\n  ],\n  \"strategic_advice\": \"One tight paragraph: the 2-3 highest-leverage changes the candidate should make to land THIS role — gaps to close, evidence to add, what a hiring manager will probe.\"\n}"
                 ]
             ], 90);
 
@@ -670,23 +682,24 @@ Return ONLY valid JSON. No markdown fences, no text outside JSON."
             $aiResult = $this->aiChatService->chatJson([
                 [
                     'role' => 'system',
-                    'content' => "You are an expert career consultant and professional writer. Your goal is to write a highly persuasive, customized, and high-impact cover letter.
+                    'content' => "You are a senior career consultant writing a tailored cover letter that positions the candidate as a strong fit for ONE specific job. The letter must be built FROM the job description, not from a template.
 
-CRITICAL GUIDELINES:
-1. PERSONALIZED: Reference specific requirements and keywords from the job description.
-2. STORYTELLING: Don't just list skills. Connect the candidate's achievements to how they will solve the company's specific problems.
-3. TONE: Professional, enthusiastic, and confident. Avoid cliches like \"I am writing to apply for...\".
-4. STRUCTURE:
-   - Powerful opening hook.
-   - 2-3 body paragraphs showing evidence of impact.
-   - Strong closing with a call to action.
-5. LENGTH: Keep it between 250-400 words.
-6. FORMAT: Use a professional business letter format but focus on the content.
-7. FIRST PERSON: Write as if you ARE the candidate."
+OPERATING RULES:
+1. TAILOR TO THE JD: First, identify the company name (if present), the role, the top 3 stated requirements, and the company's stated goals or mission cues from the job description. Anchor the letter to these. If the company name is not present, use the placeholder [Company Name] only once in the greeting.
+2. POSITION AS A STRONG FIT: For each top requirement in the JD, surface the most relevant matching experience or achievement from the CV — name the tool, the scope, and the measurable outcome. Do not list skills generically; map skill → JD requirement → proof.
+3. ALIGN WITH COMPANY GOALS: Show you understand what the company is trying to achieve and explicitly connect the candidate's track record to advancing those goals.
+4. TONE: Professional, confident, warm — never desperate, never generic. Banned openings: \"I am writing to apply for...\", \"My name is...\", \"I am a passionate...\". Open with a hook that signals understanding of the company's problem or ambition.
+5. STRUCTURE:
+   - Hook paragraph: 2-3 lines that name the role + a sharp value statement tied to the company's goal.
+   - 2 body paragraphs: each leads with one JD requirement and proves it with a quantified achievement from the CV.
+   - Closing: brief, confident call to action — invite a conversation, not a favor.
+6. LENGTH: 250-400 words. Cut anything that isn't earning its place.
+7. INTEGRITY: Use only employers, titles, dates, and achievements present in the CV data. Do not invent. If a JD requirement isn't backed by the CV, address the closest adjacent strength rather than fabricating.
+8. FIRST PERSON: Write as the candidate. Natural, human voice."
                 ],
                 [
                     'role' => 'user',
-                    'content' => "Candidate CV Data:\n{$cvData}\n\nJob description:\n{$jobDescription}\n\nPlease generate a professional cover letter. Respond strictly in JSON format:\n{\n  \"cover_letter\": \"Full text of the cover letter with proper business formatting (Placeholders like [Date], [Hiring Manager Name] are okay)\",\n  \"strategic_approach\": \"Explain the core theme used for this specific cover letter to highlight matching strengths.\"\n}"
+                    'content' => "Candidate CV Data:\n{$cvData}\n\nJob description:\n{$jobDescription}\n\nWrite a cover letter that tailors this candidate's CV to this job description, positions them as a strong fit, highlights the most relevant experience, and aligns their skills with the company's stated goals.\n\nRespond strictly in JSON format:\n{\n  \"cover_letter\": \"Full text of the cover letter in standard business format. Placeholders like [Date], [Hiring Manager Name], [Company Name] are allowed only when the information is genuinely missing from the CV or JD.\",\n  \"strategic_approach\": \"2-3 sentences: which JD requirements you anchored to, which CV achievements you used as proof, and the core positioning theme.\"\n}"
                 ]
             ], 90);
 
